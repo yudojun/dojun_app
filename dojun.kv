@@ -1,0 +1,98 @@
+<Tab@MDBoxLayout+MDTabsBase>:
+    text: ""
+    icon: ""
+    orientation: "vertical"
+
+
+ScreenManager:
+    MainScreen:
+        name: "main"
+    DetailScreen:
+        name: "detail"
+
+
+<MainScreen>:
+    MDBoxLayout:
+        orientation: "vertical"
+        padding: 0
+        spacing: 0
+
+        # ---------------------------
+        # 상단 로고 + 제목 박스
+        # ---------------------------
+        MDBoxLayout:
+            orientation: "horizontal"
+            size_hint_y: None
+            height: dp(90)
+            padding: dp(10)
+            spacing: dp(10)
+            md_bg_color: 0.1, 0.45, 0.85, 1
+
+            Image:
+                source: "assets/union_logo.png"
+                size_hint_x: None
+                width: dp(70)
+                allow_stretch: True
+                keep_ratio: True
+
+            MDLabel:
+                text: "이번 주 노사 핵심 쟁점"
+                font_name: "Nanum"
+                halign: "center"
+                valign: "middle"
+                bold: True
+                font_size: dp(22)
+                color: 1, 1, 1, 1
+
+        # ---------------------------
+        # Tab 메뉴
+        # ---------------------------
+        MDTabs:
+            id: tabs
+            tab_bar_height: dp(45)
+            tab_label_font_style: "Subtitle1"
+            title_icon_mode: "Lead"
+            title_is_capital: False
+            tab_indicator_color: 0.0, 0.6, 1, 1
+            padding: 0
+            spacing: 0
+
+            Tab:
+                title: "전체"
+                text: "전체"
+                icon: "format-list-bulleted"
+
+            Tab:
+                title: "회사안"
+                text: "회사안"
+                icon: "domain"
+
+            Tab:
+                title: "조합안"
+                text: "조합안"
+                icon: "account-group"
+
+        ScrollView:
+            MDList:
+                id: issue_list
+
+
+<DetailScreen>:
+    MDBoxLayout:
+        id: detail_container
+        orientation: "vertical"
+
+        MDTopAppBar:
+            title: ""
+            id: detail_title
+            elevation: 10
+            left_action_items: [["arrow-left", lambda x: setattr(app.root, "current", "main")]]
+
+        ScrollView:
+            MDBoxLayout:
+                id: detail_box
+                orientation: "vertical"
+                spacing: dp(15)
+                padding: dp(15)
+                size_hint_y: None
+                height: self.minimum_height
