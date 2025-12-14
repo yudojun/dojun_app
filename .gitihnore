@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtualenv
+venv/
+
+# Local runtime files
+local_version.json
+
+# Editor
+.vscode/
+.DS_Store
