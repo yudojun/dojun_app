@@ -1,4 +1,5 @@
 {
-  "version": 1,
-  "url": "https://raw.githubusercontent.com/yudojun/dojun_db/master/data/issues.db"
+  "version": 3,
+  "message": "🆕 v3 업데이트\n\n• 쟁점 자동 업데이트 기능 추가\n• 업데이트 내역 보기 버튼 추가\n• UI 안정성 개선\n\n※ 앱 실행 시 자동으로 반영됩니다."
 }
+

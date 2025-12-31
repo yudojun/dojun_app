@@ -9,16 +9,18 @@ from kivy.metrics import dp
 
 from kivymd.app import MDApp
 from kivymd.uix.screen import MDScreen
-from kivymd.uix.list import TwoLineListItem
+from kivymd.uix.list import TwoLineAvatarIconListItem, IconLeftWidget
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
 from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.tab import MDTabsBase
+from kivymd.uix.dialog import MDDialog
+from kivymd.uix.button import MDFlatButton
 
 
 # =============================
-# 폰트 등록 (한글 안정화)
+# 폰트 등록
 # =============================
 LabelBase.register(
     name="Nanum",
@@ -32,21 +34,28 @@ LabelBase.register(
     fn_bold="/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
 )
 
-
 # =============================
-# 원격 DB 정보
+# 경로 / URL
 # =============================
 REMOTE_VERSION_URL = (
     "https://raw.githubusercontent.com/yudojun/dojun_db/master/remote_version.json"
 )
-
 LOCAL_VERSION_FILE = "local_version.json"
 LOCAL_DB_FILE = "data/issues.db"
 
 
 # =============================
-# DB 업데이트 로직
+# 업데이트 정보
 # =============================
+def get_update_info():
+    try:
+        r = requests.get(REMOTE_VERSION_URL, timeout=5)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"version": "?", "message": f"업데이트 정보 오류\n{e}"}
+
+
 def get_local_version():
     if not os.path.exists(LOCAL_VERSION_FILE):
         return 0
@@ -54,17 +63,10 @@ def get_local_version():
         return json.load(f).get("version", 0)
 
 
-def get_remote_info():
-    r = requests.get(REMOTE_VERSION_URL, timeout=5)
-    r.raise_for_status()
-    return r.json()
-
-
-def download_db(db_url):
+def download_db(url):
     os.makedirs("data", exist_ok=True)
-    r = requests.get(db_url, stream=True, timeout=10)
+    r = requests.get(url, stream=True, timeout=10)
     r.raise_for_status()
-
     with open(LOCAL_DB_FILE, "wb") as f:
         for chunk in r.iter_content(1024):
             f.write(chunk)
@@ -72,30 +74,23 @@ def download_db(db_url):
 
 def update_db_if_needed():
     try:
-        local_version = get_local_version()
-        remote = get_remote_info()
+        local_v = get_local_version()
+        remote = get_update_info()
+        remote_v = remote.get("version", 0)
+        db_url = remote.get("url")
 
-        remote_version = remote["version"]
-        remote_db_url = remote["url"]
-
-        if remote_version > local_version:
-            download_db(remote_db_url)
-
+        if remote_v > local_v and db_url:
+            download_db(db_url)
             with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
-                json.dump({"version": remote_version}, f)
-
+                json.dump({"version": remote_v}, f)
             return "updated"
-
-        else:
-            return "latest"
-
-    except Exception as e:
-        print("⚠ DB 업데이트 실패:", e)
+        return "latest"
+    except Exception:
         return "error"
 
 
 # =============================
-# DB 조회
+# DB
 # =============================
 def load_issues():
     conn = sqlite3.connect(LOCAL_DB_FILE)
@@ -106,14 +101,11 @@ def load_issues():
     return rows
 
 
-def get_filtered_issues(keyword="", tab="전체"):
-    kw = keyword.strip()
+def get_filtered_issues(tab="전체"):
     rows = load_issues()
 
     def match(row):
-        title, summary, company, union_opt = row
-        if kw and kw not in title:
-            return False
+        _, _, company, union_opt = row
         if tab == "회사안":
             return bool(company and company.strip())
         if tab == "조합안":
@@ -128,31 +120,29 @@ class Tab(MDBoxLayout, MDTabsBase):
 
 
 # =============================
-# 메인 화면
+# Screens
 # =============================
 class MainScreen(MDScreen):
     current_tab = "전체"
 
-    def populate_main_list(self, keyword=""):
+    def populate_main_list(self):
         self.ids.issue_list.clear_widgets()
 
-        for row in get_filtered_issues(keyword, self.current_tab):
-            title = row[0]
-            item = TwoLineListItem(
+        for title, *_ in get_filtered_issues(self.current_tab):
+            item = TwoLineAvatarIconListItem(
                 text=title,
                 secondary_text="눌러서 자세히 보기",
                 on_release=lambda x, t=title: app.open_detail(t),
             )
+            icon = IconLeftWidget(icon="file-document-outline")
+            item.add_widget(icon)
             self.ids.issue_list.add_widget(item)
 
-    def on_tab_switch(self, instance_tabs, instance_tab, instance_tab_label, tab_text):
-        self.current_tab = tab_text
+    def on_tab_switch(self, *args):
+        self.current_tab = args[-1]
         self.populate_main_list()
 
 
-# =============================
-# 상세 화면
-# =============================
 class DetailScreen(MDScreen):
     def set_detail(self, title):
         self.ids.detail_title.text = title
@@ -170,84 +160,70 @@ class DetailScreen(MDScreen):
         if not row:
             return
 
-        keys = ["핵심 요약", "회사안", "조합안"]
-
+        labels = ["핵심 요약", "회사안", "조합안"]
         for i, text in enumerate(row):
             card = MDCard(
                 orientation="vertical",
                 padding=dp(12),
                 radius=[12],
+                size_hint_y=None,
             )
             card.add_widget(
                 MDLabel(
-                    text=f"[b]{keys[i]}[/b]",
+                    text=f"[b]{labels[i]}[/b]",
                     markup=True,
                     font_name="Nanum",
                     font_size=dp(18),
                 )
             )
-            card.add_widget(
-                MDLabel(
-                    text=text,
-                    font_name="Nanum",
-                    size_hint_y=None,
-                )
-            )
+            card.add_widget(MDLabel(text=text, font_name="Nanum"))
+            card.height = card.minimum_height
             self.ids.detail_box.add_widget(card)
 
 
 # =============================
-# 앱 본체
+# App
 # =============================
+from kivy.uix.screenmanager import ScreenManager
+
+
 class MainApp(MDApp):
+
     def build(self):
+        print("🔥 build() 호출됨")
         return Builder.load_file("dojun.kv")
 
     def on_start(self):
-        status = update_db_if_needed()   # ← 결과 받기
+        print("🔥 on_start 진입")
+        status = update_db_if_needed()
 
         main = self.root.get_screen("main")
         main.populate_main_list()
         main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
 
-        self.show_update_snackbar(status)  # ← UI 알림
-
-    def open_detail(self, title):
-        detail = self.root.get_screen("detail")
-        detail.set_detail(title)
-        self.root.current = "detail"
+        self.show_update_snackbar(status)
 
     def show_update_snackbar(self, status):
-        if status == "updated":
+            if status == "updated":
+                text = "📦 새로운 쟁점 DB가 업데이트되었습니다"
+            elif status == "latest":
+                text = "✅ 최신 쟁점 DB입니다"
+            else:
+                text = "⚠ 업데이트 상태를 확인할 수 없습니다"
+
             MDSnackbar(
-                MDLabel(text="📦 새로운 쟁점 DB가 업데이트되었습니다"),
+                MDLabel(text=text),
                 y=dp(24),
                 pos_hint={"center_x": 0.5},
-                size_hint_x=0.8,
+                size_hint_x=0.9,
                 duration=2,
             ).open()
 
-        elif status == "latest":
-            MDSnackbar(
-                MDLabel(text="✅ 최신 쟁점 DB입니다"),
-                y=dp(24),
-                pos_hint={"center_x": 0.5},
-                size_hint_x=0.8,
-                duration=2,
-            ).open()
-
-        elif status == "error":
-            MDSnackbar(
-                MDLabel(text="⚠ DB 업데이트 확인 실패 (네트워크)"),
-                y=dp(24),
-                pos_hint={"center_x": 0.5},
-                size_hint_x=0.8,
-                duration=3,
-            ).open()
+    def go_main(self):
+        self.root.current = "main"
 
 
-# =============================
-# 실행
-# =============================
-app = MainApp()
-app.run()
+if __name__ == "__main__":
+    print("🔥 __main__ 진입")
+    app = MainApp()
+    app.run()
