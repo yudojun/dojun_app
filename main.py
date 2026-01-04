@@ -17,28 +17,33 @@ from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.tab import MDTabsBase
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.button import MDFlatButton
+from kivy.core.window import Window
 
+# ===== 모바일 비율 고정 (개발용) =====
+Window.size = (360, 640)
+Window.minimum_width = 360
+Window.minimum_height = 640
 
 # =============================
 # 폰트 등록
 # =============================
 LabelBase.register(
     name="Nanum",
-    fn_regular="/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-    fn_bold="/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+    fn_regular="fonts/NanumGothic.ttf",
+    fn_bold="fonts/NanumGothicBold.ttf",
 )
 
 LabelBase.register(
     name="Roboto",
-    fn_regular="/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-    fn_bold="/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+    fn_regular="fonts/NanumGothic.ttf",
+    fn_bold="fonts/NanumGothicBold.ttf",
 )
 
 # =============================
 # 경로 / URL
 # =============================
 REMOTE_VERSION_URL = (
-    "https://raw.githubusercontent.com/yudojun/dojun_db/master/remote_version.json"
+    "https://raw.githubusercontent.com/yudojun/dojun_app/main/remote_version.json"
 )
 LOCAL_VERSION_FILE = "local_version.json"
 LOCAL_DB_FILE = "data/issues.db"
@@ -122,8 +127,12 @@ class Tab(MDBoxLayout, MDTabsBase):
 # =============================
 # Screens
 # =============================
+from kivy.properties import StringProperty
+
+
 class MainScreen(MDScreen):
     current_tab = "전체"
+    update_text = StringProperty("")
 
     def populate_main_list(self):
         self.ids.issue_list.clear_widgets()
@@ -181,6 +190,22 @@ class DetailScreen(MDScreen):
             self.ids.detail_box.add_widget(card)
 
 
+class UpdateHistoryScreen(MDScreen):
+    update_text = StringProperty("")
+
+    def on_enter(self):
+        info = get_update_info()
+
+        self.update_text = (
+            "[b]버전 3[/b]\n\n"
+            "☑ v3 업데이트\n"
+            "• 쟁점 자동 업데이트 기능 추가\n"
+            "• 업데이트 내역 보기 버튼 추가\n"
+            "• UI 안정성 개선\n\n"
+            "[color=#777777]※ 앱 실행 시 자동으로 반영됩니다.[/color]"
+)
+
+
 # =============================
 # App
 # =============================
@@ -203,21 +228,29 @@ class MainApp(MDApp):
 
         self.show_update_snackbar(status)
 
-    def show_update_snackbar(self, status):
-            if status == "updated":
-                text = "📦 새로운 쟁점 DB가 업데이트되었습니다"
-            elif status == "latest":
-                text = "✅ 최신 쟁점 DB입니다"
-            else:
-                text = "⚠ 업데이트 상태를 확인할 수 없습니다"
+    def open_detail(self, title):
+        detail = self.root.get_screen("detail")
+        detail.set_detail(title)
+        self.root.current = "detail"
 
-            MDSnackbar(
-                MDLabel(text=text),
-                y=dp(24),
-                pos_hint={"center_x": 0.5},
-                size_hint_x=0.9,
-                duration=2,
-            ).open()
+    def show_update_snackbar(self, status):
+        if status == "updated":
+            text = "📦 새로운 쟁점 DB가 업데이트되었습니다"
+        elif status == "latest":
+            text = "✅ 최신 쟁점 DB입니다"
+        else:
+            text = "⚠ 업데이트 상태를 확인할 수 없습니다"
+
+        MDSnackbar(
+            MDLabel(text=text),
+            y=dp(24),
+            pos_hint={"center_x": 0.5},
+            size_hint_x=0.9,
+            duration=2,
+        ).open()
+
+    def go_history(self):
+        self.root.current = "history"
 
     def go_main(self):
         self.root.current = "main"
