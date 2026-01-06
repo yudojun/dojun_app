@@ -6,6 +6,9 @@ import sqlite3
 from kivy.core.text import LabelBase
 from kivy.lang import Builder
 from kivy.metrics import dp
+from kivy.core.window import Window
+from kivy.properties import StringProperty
+from kivy.animation import Animation
 
 from kivymd.app import MDApp
 from kivymd.uix.screen import MDScreen
@@ -15,14 +18,14 @@ from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
 from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.tab import MDTabsBase
-from kivymd.uix.dialog import MDDialog
 from kivymd.uix.button import MDFlatButton
-from kivy.core.window import Window
+
 
 # ===== 모바일 비율 고정 (개발용) =====
 Window.size = (360, 640)
 Window.minimum_width = 360
 Window.minimum_height = 640
+
 
 # =============================
 # 폰트 등록
@@ -33,11 +36,13 @@ LabelBase.register(
     fn_bold="fonts/NanumGothicBold.ttf",
 )
 
+# KivyMD 기본 폰트(Roboto)를 나눔으로 덮기
 LabelBase.register(
     name="Roboto",
     fn_regular="fonts/NanumGothic.ttf",
     fn_bold="fonts/NanumGothicBold.ttf",
 )
+
 
 # =============================
 # 경로 / URL
@@ -52,6 +57,16 @@ LOCAL_DB_FILE = "data/issues.db"
 # =============================
 # 업데이트 정보
 # =============================
+def get_remote_versions():
+    try:
+        r = requests.get(REMOTE_VERSION_URL, timeout=5)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print("❌ 업데이트 JSON 로드 실패:", e)
+        return None
+
+
 def get_update_info():
     try:
         r = requests.get(REMOTE_VERSION_URL, timeout=5)
@@ -127,9 +142,6 @@ class Tab(MDBoxLayout, MDTabsBase):
 # =============================
 # Screens
 # =============================
-from kivy.properties import StringProperty
-
-
 class MainScreen(MDScreen):
     current_tab = "전체"
     update_text = StringProperty("")
@@ -143,8 +155,7 @@ class MainScreen(MDScreen):
                 secondary_text="눌러서 자세히 보기",
                 on_release=lambda x, t=title: app.open_detail(t),
             )
-            icon = IconLeftWidget(icon="file-document-outline")
-            item.add_widget(icon)
+            item.add_widget(IconLeftWidget(icon="file-document-outline"))
             self.ids.issue_list.add_widget(item)
 
     def on_tab_switch(self, *args):
@@ -177,49 +188,158 @@ class DetailScreen(MDScreen):
                 radius=[12],
                 size_hint_y=None,
             )
+            card.bind(minimum_height=card.setter("height"))
+
             card.add_widget(
                 MDLabel(
                     text=f"[b]{labels[i]}[/b]",
                     markup=True,
                     font_name="Nanum",
-                    font_size=dp(18),
+                    font_size="18sp",
+                    size_hint_y=None,
+                    height=dp(28),
                 )
             )
-            card.add_widget(MDLabel(text=text, font_name="Nanum"))
-            card.height = card.minimum_height
+            card.add_widget(
+                MDLabel(
+                    text=text or "",
+                    font_name="Nanum",
+                    size_hint_y=None,
+                )
+            )
             self.ids.detail_box.add_widget(card)
 
 
 class UpdateHistoryScreen(MDScreen):
-    update_text = StringProperty("")
-
     def on_enter(self):
-        info = get_update_info()
+        container = self.ids.history_container
+        container.clear_widgets()
 
-        self.update_text = (
-            "[b]버전 3[/b]\n\n"
-            "☑ v3 업데이트\n"
-            "• 쟁점 자동 업데이트 기능 추가\n"
-            "• 업데이트 내역 보기 버튼 추가\n"
-            "• UI 안정성 개선\n\n"
-            "[color=#777777]※ 앱 실행 시 자동으로 반영됩니다.[/color]"
-)
+        data = get_remote_versions()
+        if not data:
+            container.add_widget(
+                MDLabel(
+                    text="업데이트 정보를 불러올 수 없습니다.",
+                    font_name="Nanum",
+                )
+            )
+            return
+
+        latest_version = data.get("latest_version")
+        versions = data.get("versions", [])
+
+        for v in versions:
+            is_latest = v["version"] == latest_version
+
+            card = MDCard(
+                orientation="vertical",
+                padding=dp(8),
+                radius=[12],
+                size_hint_y=None,
+            )
+            card.bind(minimum_height=card.setter("height"))
+
+            # ---------- Header ----------
+            header = MDBoxLayout(
+                orientation="horizontal",
+                size_hint_y=None,
+                height=dp(44),
+                padding=(dp(12), 0),
+            )
+
+            title_text = f"[b]버전 {v['version']}[/b]"
+            if is_latest:
+                title_text += "  [color=#E53935]NEW[/color]"
+
+            header_label = MDLabel(
+                text=title_text,
+                markup=True,
+                font_name="Nanum",
+                font_size="16sp",
+                valign="middle",
+            )
+
+            toggle_btn = MDFlatButton(
+                text="",
+                size_hint=(1, 1),
+                md_bg_color=(0, 0, 0, 0),
+            )
+
+            header.add_widget(header_label)
+            header.add_widget(toggle_btn)
+            card.add_widget(header)
+
+            # ---------- Content ----------
+            content = MDBoxLayout(
+                orientation="vertical",
+                padding=(dp(16), dp(8)),
+                spacing=dp(6),
+                size_hint_y=None,
+            )
+
+            content.add_widget(
+                MDLabel(
+                    text=f"☑ {v['title']}",
+                    font_name="Nanum",
+                    size_hint_y=None,
+                )
+            )
+
+            for item in v.get("items", []):
+                content.add_widget(
+                    MDLabel(
+                        text=f"• {item}",
+                        font_name="Nanum",
+                        size_hint_y=None,
+                    )
+                )
+
+            if v.get("note"):
+                content.add_widget(
+                    MDLabel(
+                        text=f"[color=#777777]{v['note']}[/color]",
+                        markup=True,
+                        font_name="Nanum",
+                        size_hint_y=None,
+                    )
+                )
+
+            content.bind(minimum_height=content.setter("height"))
+
+            if is_latest:
+                content.opacity = 1
+                content.height = content.minimum_height
+            else:
+                content.opacity = 0
+                content.height = 0
+
+            card.add_widget(content)
+
+            # ---------- Toggle ----------
+            def make_toggle(cbox):
+                def _toggle(*args):
+                    if cbox.height == 0:
+                        Animation(height=cbox.minimum_height, opacity=1, d=0.15).start(
+                            cbox
+                        )
+                    else:
+                        Animation(height=0, opacity=0, d=0.15).start(cbox)
+
+                return _toggle
+
+            toggle_btn.bind(on_release=make_toggle(content))
+
+            container.add_widget(card)
 
 
 # =============================
 # App
 # =============================
-from kivy.uix.screenmanager import ScreenManager
-
-
 class MainApp(MDApp):
-
     def build(self):
-        print("🔥 build() 호출됨")
         return Builder.load_file("dojun.kv")
 
     def on_start(self):
-        print("🔥 on_start 진입")
         status = update_db_if_needed()
 
         main = self.root.get_screen("main")
@@ -242,7 +362,7 @@ class MainApp(MDApp):
             text = "⚠ 업데이트 상태를 확인할 수 없습니다"
 
         MDSnackbar(
-            MDLabel(text=text),
+            MDLabel(text=text, font_name="Nanum"),
             y=dp(24),
             pos_hint={"center_x": 0.5},
             size_hint_x=0.9,
@@ -257,6 +377,5 @@ class MainApp(MDApp):
 
 
 if __name__ == "__main__":
-    print("🔥 __main__ 진입")
     app = MainApp()
     app.run()
