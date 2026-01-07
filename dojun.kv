@@ -23,9 +23,25 @@ ScreenManager:
             md_bg_color: 0.13, 0.58, 0.92, 1
 
             MDTopAppBar:
+                id: top_bar
                 title: ""
-                elevation: 0
-                right_action_items: [["history", lambda x: app.go_history()]]
+
+                MDBoxLayout:
+                    adaptive_width: True
+                    padding: dp(8), 0
+                    spacing: dp(6)
+
+                    MDIconButton:
+                        icon: "history"
+                        on_release: app.go_history()
+
+                    MDIcon:
+                        id: update_dot
+                        icon: "circle"
+                        theme_text_color: "Custom"
+                        text_color: 1, 0, 0, 1
+                        opacity: 0
+
 
             MDLabel:
                 text: "이번주 주요 쟁점 사항"

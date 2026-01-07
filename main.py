@@ -109,6 +109,27 @@ def update_db_if_needed():
         return "error"
 
 
+def has_new_update():
+    try:
+        data = get_remote_versions()
+        if not data:
+            return False
+
+        latest = data.get("latest_version")
+
+        # local_version.json 없으면 = 처음 실행 = 업데이트 있음
+        if not os.path.exists(LOCAL_VERSION_FILE):
+            return True
+
+        with open(LOCAL_VERSION_FILE, "r", encoding="utf-8") as f:
+            local = json.load(f).get("last_seen_version")
+
+        return latest != local
+    except Exception as e:
+        print("❌ 업데이트 비교 실패:", e)
+        return False
+
+
 # =============================
 # DB
 # =============================
@@ -212,8 +233,19 @@ class DetailScreen(MDScreen):
 
 class UpdateHistoryScreen(MDScreen):
     def on_enter(self):
+        # ✅ 업데이트 확인 처리 (여기서 핵심)
+        data = get_remote_versions()
+        if data:
+            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"last_seen_version": data.get("latest_version")},
+                    f,
+                    ensure_ascii=False,
+                )
+
         container = self.ids.history_container
         container.clear_widgets()
+        ...
 
         data = get_remote_versions()
         if not data:
@@ -336,6 +368,17 @@ class UpdateHistoryScreen(MDScreen):
 # App
 # =============================
 class MainApp(MDApp):
+    from kivy.animation import Animation
+
+    def start_update_dot_animation(self):
+        dot = self.root.get_screen("main").ids.update_dot
+
+        dot.opacity = 1
+
+        anim = Animation(opacity=0.3, d=0.8) + Animation(opacity=1, d=0.8)
+        anim.repeat = True
+        anim.start(dot)
+
     def build(self):
         return Builder.load_file("dojun.kv")
 
@@ -345,6 +388,11 @@ class MainApp(MDApp):
         main = self.root.get_screen("main")
         main.populate_main_list()
         main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
+
+        if has_new_update():
+            self.start_update_dot_animation()
+        else:
+            main.ids.update_dot.opacity = 0
 
         self.show_update_snackbar(status)
 
@@ -370,9 +418,27 @@ class MainApp(MDApp):
         ).open()
 
     def go_history(self):
+        # 최신 버전을 '확인함'으로 저장
+        data = get_remote_versions()
+        if data:
+            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"last_seen_version": data.get("latest_version")},
+                    f,
+                    ensure_ascii=False,
+                )
+
         self.root.current = "history"
 
     def go_main(self):
+        main = self.root.get_screen("main")
+
+        if has_new_update():
+            self.start_update_dot_animation()
+        else:
+            main.ids.update_dot.opacity = 0
+            Animation.cancel_all(main.ids.update_dot)
+
         self.root.current = "main"
 
 
