@@ -19,7 +19,7 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.tab import MDTabsBase
 from kivymd.uix.button import MDFlatButton
-
+from kivy.app import App
 
 # ===== 모바일 비율 고정 (개발용) =====
 Window.size = (360, 640)
@@ -174,7 +174,10 @@ class MainScreen(MDScreen):
             item = TwoLineAvatarIconListItem(
                 text=title,
                 secondary_text="눌러서 자세히 보기",
-                on_release=lambda x, t=title: app.open_detail(t),
+                on_release=lambda x, t=title: App.get_running_app().open_detail(t),
+            )
+
+
             )
             item.add_widget(IconLeftWidget(icon="file-document-outline"))
             self.ids.issue_list.add_widget(item)
@@ -383,18 +386,19 @@ class MainApp(MDApp):
         return Builder.load_file("dojun.kv")
 
     def on_start(self):
-        status = update_db_if_needed()
+        print("=== on_start called ===")
 
         main = self.root.get_screen("main")
         main.populate_main_list()
         main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
 
-        if has_new_update():
-            self.start_update_dot_animation()
-        else:
-            main.ids.update_dot.opacity = 0
-
-        self.show_update_snackbar(status)
+        # 🔴 임시로 전부 비활성화
+        # status = update_db_if_needed()
+        # if has_new_update():
+        #     self.start_update_dot_animation()
+        # else:
+        #     main.ids.update_dot.opacity = 0
+        # self.show_update_snackbar(status)
 
     def open_detail(self, title):
         detail = self.root.get_screen("detail")
