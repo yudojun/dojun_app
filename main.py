@@ -16,10 +16,17 @@ from kivymd.uix.list import TwoLineAvatarIconListItem, IconLeftWidget
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
-from kivymd.uix.snackbar import MDSnackbar
+from kivymd.uix.label import MDIcon
+from kivymd.uix.snackbar import Snackbar
 from kivymd.uix.tab import MDTabsBase
 from kivymd.uix.button import MDFlatButton
 from kivy.app import App
+from kivy.clock import Clock
+from kivy.animation import Animation
+from kivy.uix.screenmanager import SlideTransition
+
+print("=== main.py loaded ===")
+
 
 # ===== 모바일 비율 고정 (개발용) =====
 Window.size = (360, 640)
@@ -134,12 +141,21 @@ def has_new_update():
 # DB
 # =============================
 def load_issues():
-    conn = sqlite3.connect(LOCAL_DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT title, summary, company, union_opt FROM issues")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    try:
+        if not os.path.exists(LOCAL_DB_FILE):
+            print("⚠ DB 파일 없음")
+            return []
+
+        conn = sqlite3.connect(LOCAL_DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT title, summary, company, union_opt FROM issues")
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    except Exception as e:
+        print("❌ DB 로드 실패:", e)
+        return []
 
 
 def get_filtered_issues(tab="전체"):
@@ -177,8 +193,6 @@ class MainScreen(MDScreen):
                 on_release=lambda x, t=title: App.get_running_app().open_detail(t),
             )
 
-
-            )
             item.add_widget(IconLeftWidget(icon="file-document-outline"))
             self.ids.issue_list.add_widget(item)
 
@@ -189,7 +203,6 @@ class MainScreen(MDScreen):
 
 class DetailScreen(MDScreen):
     def set_detail(self, title):
-        self.ids.detail_title.text = title
         self.ids.detail_box.clear_widgets()
 
         conn = sqlite3.connect(LOCAL_DB_FILE)
@@ -208,27 +221,49 @@ class DetailScreen(MDScreen):
         for i, text in enumerate(row):
             card = MDCard(
                 orientation="vertical",
-                padding=dp(12),
+                padding=dp(14),
+                spacing=dp(8),
                 radius=[12],
                 size_hint_y=None,
             )
+
             card.bind(minimum_height=card.setter("height"))
 
-            card.add_widget(
-                MDLabel(
-                    text=f"[b]{labels[i]}[/b]",
-                    markup=True,
-                    font_name="Nanum",
-                    font_size="18sp",
-                    size_hint_y=None,
-                    height=dp(28),
+            title_box = MDBoxLayout(
+                orientation="horizontal",
+                spacing=dp(8),
+                size_hint_y=None,
+                height=dp(32),
+            )
+
+            title_box.add_widget(
+                MDIcon(
+                    icon="file-document-outline",
+                    size_hint=(None, None),
+                    size=(dp(24), dp(24)),
+                    theme_text_color="Primary",
                 )
             )
+
+            title_box.add_widget(
+                MDLabel(
+                    text=labels[i],
+                    font_name="Nanum",
+                    font_size="18sp",
+                    bold=True,
+                    valign="middle",
+                )
+            )
+
+            card.add_widget(title_box)
+
             card.add_widget(
                 MDLabel(
                     text=text or "",
                     font_name="Nanum",
                     size_hint_y=None,
+                    line_height=1.4,
+                    theme_text_color="Primary",
                 )
             )
             self.ids.detail_box.add_widget(card)
@@ -268,10 +303,14 @@ class UpdateHistoryScreen(MDScreen):
 
             card = MDCard(
                 orientation="vertical",
-                padding=dp(8),
+                padding=dp(14),
+                spacing=dp(8),
                 radius=[12],
+                elevation=1,
+                md_bg_color=(1, 1, 1, 1),
                 size_hint_y=None,
             )
+
             card.bind(minimum_height=card.setter("height"))
 
             # ---------- Header ----------
@@ -371,79 +410,138 @@ class UpdateHistoryScreen(MDScreen):
 # App
 # =============================
 class MainApp(MDApp):
-    from kivy.animation import Animation
+    is_navigating = False
+
+    def safe_update_check(self, dt):
+        print("=== safe_update_check ===")
+
+        try:
+            status = update_db_if_needed()
+
+            main = self.root.get_screen("main")
+
+            if has_new_update():
+                self.start_update_dot_animation()
+            else:
+                main.ids.update_dot.opacity = 0
+
+            self.show_update_snackbar(status)
+
+        except Exception as e:
+            print("❌ update check failed:", e)
 
     def start_update_dot_animation(self):
-        dot = self.root.get_screen("main").ids.update_dot
+        print("=== start_update_dot_animation ===")
+
+        try:
+            main = self.root.get_screen("main")
+            dot = main.ids.update_dot
+        except Exception as e:
+            print("❌ update_dot 접근 실패:", e)
+            return
 
         dot.opacity = 1
-
+        Animation.cancel_all(dot)
         anim = Animation(opacity=0.3, d=0.8) + Animation(opacity=1, d=0.8)
         anim.repeat = True
         anim.start(dot)
 
     def build(self):
+        print("=== build() called ===")
         return Builder.load_file("dojun.kv")
 
     def on_start(self):
-        print("=== on_start called ===")
+        print("=== on_start ===")
 
-        main = self.root.get_screen("main")
-        main.populate_main_list()
-        main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
+        # 1) main screen 잡기 (보호막)
+        try:
+            main = self.root.get_screen("main")
+        except Exception as e:
+            print("❌ get_screen('main') 실패:", e)
+            return  # main을 못 잡으면 더 진행하지 말고 종료(앱은 유지)
 
-        # 🔴 임시로 전부 비활성화
-        # status = update_db_if_needed()
-        # if has_new_update():
-        #     self.start_update_dot_animation()
-        # else:
-        #     main.ids.update_dot.opacity = 0
-        # self.show_update_snackbar(status)
+        # 2) main 초기화 (보호막)
+        try:
+            main.populate_main_list()
+            main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
+        except Exception as e:
+            print("❌ main 초기화 실패:", e)
+
+        # 3) 무거운 건 지연 실행
+        Clock.schedule_once(self.safe_update_check, 1)
 
     def open_detail(self, title):
-        detail = self.root.get_screen("detail")
-        detail.set_detail(title)
-        self.root.current = "detail"
+        print("=== open_detail ===", title)
+
+        if self.is_navigating:
+            print("⏳ navigation locked")
+            return
+
+        self.is_navigating = True
+
+        try:
+            detail = self.root.get_screen("detail")
+            detail.set_detail(title)
+            self.root.current = "detail"
+        except Exception as e:
+            print("❌ detail 화면 처리 실패:", e)
+        finally:
+            # 아주 짧게 딜레이 후 해제
+            Clock.schedule_once(lambda dt: self._unlock_nav(), 0.3)
+
+    def _unlock_nav(self):
+        self.is_navigating = False
 
     def show_update_snackbar(self, status):
-        if status == "updated":
-            text = "📦 새로운 쟁점 DB가 업데이트되었습니다"
-        elif status == "latest":
-            text = "✅ 최신 쟁점 DB입니다"
-        else:
-            text = "⚠ 업데이트 상태를 확인할 수 없습니다"
+        try:
+            if status == "updated":
+                text = "📦 새로운 쟁점 DB가 업데이트되었습니다"
+            elif status == "latest":
+                text = "✅ 최신 쟁점 DB입니다"
+            else:
+                text = "⚠ 업데이트 상태를 확인할 수 없습니다"
 
-        MDSnackbar(
-            MDLabel(text=text, font_name="Nanum"),
-            y=dp(24),
-            pos_hint={"center_x": 0.5},
-            size_hint_x=0.9,
-            duration=2,
-        ).open()
+            Snackbar(text=text, duration=2).open()
+
+        except Exception as e:
+            print("❌ Snackbar 실패:", e)
 
     def go_history(self):
-        # 최신 버전을 '확인함'으로 저장
-        data = get_remote_versions()
-        if data:
-            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"last_seen_version": data.get("latest_version")},
-                    f,
-                    ensure_ascii=False,
-                )
+        print("=== go_history ===")
+
+        try:
+            data = get_remote_versions()
+            if data:
+                with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {"last_seen_version": data.get("latest_version")},
+                        f,
+                        ensure_ascii=False,
+                    )
+        except Exception as e:
+            print("❌ go_history update 실패:", e)
 
         self.root.current = "history"
 
     def go_main(self):
-        main = self.root.get_screen("main")
+        print("=== go_main ===")
 
-        if has_new_update():
-            self.start_update_dot_animation()
-        else:
-            main.ids.update_dot.opacity = 0
-            Animation.cancel_all(main.ids.update_dot)
+        try:
+            main = self.root.get_screen("main")
+        except Exception as e:
+            print("❌ get_screen('main') 실패:", e)
+            return
 
-        self.root.current = "main"
+        try:
+            if has_new_update():
+                self.start_update_dot_animation()
+            else:
+                main.ids.update_dot.opacity = 0
+                Animation.cancel_all(main.ids.update_dot)
+
+            self.root.current = "main"
+        except Exception as e:
+            print("❌ go_main 처리 실패:", e)
 
 
 if __name__ == "__main__":
