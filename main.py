@@ -20,18 +20,19 @@ from kivymd.uix.label import MDIcon
 from kivymd.uix.snackbar import Snackbar
 from kivymd.uix.tab import MDTabsBase
 from kivymd.uix.button import MDFlatButton
+from functools import partial
+from kivymd.uix.button import MDIconButton
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.uix.screenmanager import SlideTransition
+from kivy.utils import platform
+from kivy.core.window import Window
 
-print("=== main.py loaded ===")
-
-
-# ===== 모바일 비율 고정 (개발용) =====
-Window.size = (360, 640)
-Window.minimum_width = 360
-Window.minimum_height = 640
+if platform in ("win", "linux", "macosx"):
+    Window.size = (360, 640)
+    Window.minimum_width = 360
+    Window.minimum_height = 640
 
 
 # =============================
@@ -176,25 +177,169 @@ class Tab(MDBoxLayout, MDTabsBase):
     pass
 
 
+class ExpandableIssueCard(MDCard):
+    def __init__(self, title, summary, company, union_opt, parent_screen, **kwargs):
+        super().__init__(**kwargs)
+
+        self.parent_screen = parent_screen
+        self.title = title
+        self.summary = summary or ""
+        self.company = company or ""
+        self.union_opt = union_opt or ""
+
+        self.orientation = "vertical"
+        self.padding = (dp(16), dp(14))
+        self.radius = [14]
+        self.elevation = 1
+        self.size_hint_y = None
+
+        # ---- 헤더(항상 보이는 부분) ----
+        header = MDBoxLayout(
+            orientation="horizontal",
+            spacing=dp(10),
+            size_hint_y=None,
+            height=dp(44),
+        )
+
+        header.add_widget(
+            MDIcon(
+                icon="file-document-outline",
+                size_hint=(None, None),
+                size=(dp(24), dp(24)),
+                theme_text_color="Primary",
+            )
+        )
+
+        self.title_label = MDLabel(
+            text=title,
+            font_name="Nanum",
+            bold=True,
+            font_size="16sp",
+            valign="middle",
+        )
+
+        self.chev = MDIconButton(
+            icon="chevron-down",
+            pos_hint={"center_y": 0.5},
+            on_release=self.toggle,
+        )
+
+        header.add_widget(self.title_label)
+        header.add_widget(self.chev)
+
+        self.add_widget(header)
+
+        # ---- 내용(접혔다 펼쳐지는 부분) ----
+        self.content = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(10),
+            padding=(dp(34), dp(6), dp(4), dp(6)),  # 아이콘 자리만큼 왼쪽 여백
+            size_hint_y=None,
+            opacity=0,
+            height=0,
+        )
+
+        # 내용 구성 (필요하면 여기 문구 바꿔도 됨)
+        self.content.add_widget(self._section("핵심 요약", self.summary))
+        self.content.add_widget(self._section("회사안", self.company))
+        self.content.add_widget(self._section("조합안", self.union_opt))
+
+        self.add_widget(self.content)
+
+        # 카드 전체 높이(헤더만 보일 때)
+        self._collapsed_height = dp(56)
+        self.height = self._collapsed_height
+        self._opened = False
+
+    def _section(self, title, body):
+        box = MDBoxLayout(orientation="vertical", spacing=dp(4), size_hint_y=None)
+        box.bind(minimum_height=box.setter("height"))
+
+        box.add_widget(
+            MDLabel(
+                text=title,
+                font_name="Nanum",
+                bold=True,
+                font_size="14sp",
+                size_hint_y=None,
+                height=dp(18),
+            )
+        )
+        box.add_widget(
+            MDLabel(
+                text=body if body.strip() else "(내용 없음)",
+                font_name="Nanum",
+                line_height=1.35,
+                size_hint_y=None,
+            )
+        )
+        return box
+
+    def toggle(self, *args):
+        ps = self.parent_screen
+        if ps is None:
+            return
+
+        if not self._opened:
+            if ps.opened_card and ps.opened_card is not self:
+                ps.opened_card.force_close()
+
+            self._opened = True
+            self.chev.icon = "chevron-up"
+
+            self.content.opacity = 1
+            self.content.height = self.content.minimum_height
+            self.height = self._collapsed_height + self.content.height
+
+            ps.opened_card = self
+
+        else:
+            self._opened = False
+            self.chev.icon = "chevron-down"
+
+            self.content.opacity = 0
+            self.content.height = 0
+            self.height = self._collapsed_height
+
+            ps.opened_card = None
+
+    def force_close(self):
+        """다른 카드가 열릴 때 강제로 닫히는 함수"""
+        if not self._opened:
+            return
+
+        self._opened = False
+        self.chev.icon = "chevron-down"
+
+        self.content.opacity = 0
+        self.content.height = 0
+        self.height = self._collapsed_height
+
+
 # =============================
 # Screens
 # =============================
 class MainScreen(MDScreen):
     current_tab = "전체"
     update_text = StringProperty("")
+    opened_card = None
 
     def populate_main_list(self):
+        print("=== populate_main_list start ===")
         self.ids.issue_list.clear_widgets()
 
-        for title, *_ in get_filtered_issues(self.current_tab):
-            item = TwoLineAvatarIconListItem(
-                text=title,
-                secondary_text="눌러서 자세히 보기",
-                on_release=lambda x, t=title: App.get_running_app().open_detail(t),
-            )
-
-            item.add_widget(IconLeftWidget(icon="file-document-outline"))
-            self.ids.issue_list.add_widget(item)
+        for title, summary, company, union_opt in get_filtered_issues(self.current_tab):
+            try:
+                card = ExpandableIssueCard(
+                    title=title,
+                    summary=summary,
+                    company=company,
+                    union_opt=union_opt,
+                    parent_screen=self,
+                )
+                self.ids.issue_list.add_widget(card)
+            except Exception as e:
+                print("❌ 카드 생성 실패:", title, e)
 
     def on_tab_switch(self, *args):
         self.current_tab = args[-1]
@@ -221,9 +366,8 @@ class DetailScreen(MDScreen):
         for i, text in enumerate(row):
             card = MDCard(
                 orientation="vertical",
-                padding=dp(14),
-                spacing=dp(8),
-                radius=[12],
+                padding=(dp(16), dp(14)),  # 좌우 / 상하 분리
+                radius=[14],
                 size_hint_y=None,
             )
 
@@ -249,8 +393,9 @@ class DetailScreen(MDScreen):
                 MDLabel(
                     text=labels[i],
                     font_name="Nanum",
-                    font_size="18sp",
+                    font_size="17sp",
                     bold=True,
+                    color=(0.1, 0.1, 0.1, 1),  # 진한 회색
                     valign="middle",
                 )
             )
