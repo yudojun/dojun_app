@@ -188,7 +188,7 @@ class ExpandableIssueCard(MDCard):
         self.union_opt = union_opt or ""
 
         self.orientation = "vertical"
-        self.padding = (dp(16), dp(14))
+        self.padding = (dp(18), dp(16))
         self.radius = [14]
         self.elevation = 1
         self.size_hint_y = None
@@ -287,9 +287,23 @@ class ExpandableIssueCard(MDCard):
             self._opened = True
             self.chev.icon = "chevron-up"
 
-            self.content.opacity = 1
-            self.content.height = self.content.minimum_height
-            self.height = self._collapsed_height + self.content.height
+            target_height = self.content.minimum_height
+
+            self.content.opacity = 0
+            self.content.height = 0
+
+            Animation(
+                height=target_height,
+                opacity=1,
+                d=0.2,
+                t="out_quad",
+            ).start(self.content)
+
+            Animation(
+                height=self._collapsed_height + target_height,
+                d=0.2,
+                t="out_quad",
+            ).start(self)
 
             ps.opened_card = self
 
@@ -311,9 +325,20 @@ class ExpandableIssueCard(MDCard):
         self._opened = False
         self.chev.icon = "chevron-down"
 
-        self.content.opacity = 0
-        self.content.height = 0
-        self.height = self._collapsed_height
+        Animation(
+            height=0,
+            opacity=0,
+            d=0.15,
+            t="out_quad",
+        ).start(self.content)
+
+        Animation(
+            height=self._collapsed_height,
+            d=0.15,
+            t="out_quad",
+        ).start(self)
+
+        ps.opened_card = None
 
 
 # =============================
@@ -324,26 +349,93 @@ class MainScreen(MDScreen):
     update_text = StringProperty("")
     opened_card = None
 
+    _last_loaded_tab = None
+
     def populate_main_list(self):
+        self.opened_card = None
+        if self._last_loaded_tab == self.current_tab:
+            return
+
         print("=== populate_main_list start ===")
         self.ids.issue_list.clear_widgets()
 
-        for title, summary, company, union_opt in get_filtered_issues(self.current_tab):
-            try:
-                card = ExpandableIssueCard(
-                    title=title,
-                    summary=summary,
-                    company=company,
-                    union_opt=union_opt,
-                    parent_screen=self,
+        issues = get_filtered_issues(self.current_tab)
+
+        # ===== 🔥 EMPTY STATE 처리 =====
+        if not issues:
+            empty_card = MDCard(
+                orientation="vertical",
+                padding=(dp(20), dp(20)),
+                radius=[14],
+                elevation=0,
+                md_bg_color=(0.96, 0.96, 0.96, 1),
+                size_hint_y=None,
+            )
+            empty_card.bind(minimum_height=empty_card.setter("height"))
+
+            empty_card.add_widget(
+                MDLabel(
+                    text="📭 현재 등록된 쟁점이 없습니다",
+                    font_name="Nanum",
+                    font_size="16sp",
+                    halign="center",
+                    theme_text_color="Secondary",
+                    size_hint_y=None,
+                    height=dp(32),
                 )
-                self.ids.issue_list.add_widget(card)
-            except Exception as e:
-                print("❌ 카드 생성 실패:", title, e)
+            )
+
+            empty_card.add_widget(
+                MDLabel(
+                    text="새로운 쟁점이 등록되면\n이곳에 자동으로 표시됩니다.",
+                    font_name="Nanum",
+                    halign="center",
+                    theme_text_color="Secondary",
+                    size_hint_y=None,
+                )
+            )
+
+            self.ids.issue_list.add_widget(empty_card)
+            self._last_loaded_tab = self.current_tab
+            return
+        # ===== 🔥 EMPTY STATE 끝 =====
+
+        seen_titles = set()
+
+        for title, summary, company, union_opt in issues:
+            if title in seen_titles:
+                continue
+            seen_titles.add(title)
+
+            card = ExpandableIssueCard(
+                title=title,
+                summary=summary,
+                company=company,
+                union_opt=union_opt,
+                parent_screen=self,
+            )
+            self.ids.issue_list.add_widget(card)
+
+        self._last_loaded_tab = self.current_tab
 
     def on_tab_switch(self, *args):
-        self.current_tab = args[-1]
-        self.populate_main_list()
+        new_tab = args[-1]
+        if self.current_tab == new_tab:
+            return
+
+        self.current_tab = new_tab
+
+        # 🔹 리스트 페이드 아웃 → 인
+        lst = self.ids.issue_list
+        Animation(opacity=0, d=0.08).start(lst)
+
+        def reload(dt):
+            self._last_loaded_tab = None  # 강제 리로드
+            self.populate_main_list()
+            lst.parent.scroll_y = 1
+            Animation(opacity=1, d=0.12).start(lst)
+
+        Clock.schedule_once(reload, 0.08)
 
 
 class DetailScreen(MDScreen):
@@ -607,6 +699,7 @@ class MainApp(MDApp):
 
         # 2) main 초기화 (보호막)
         try:
+            main._last_loaded_tab = None  # 강제 초기화
             main.populate_main_list()
             main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
         except Exception as e:
@@ -673,6 +766,7 @@ class MainApp(MDApp):
 
         try:
             main = self.root.get_screen("main")
+            self.root.current = "main"
         except Exception as e:
             print("❌ get_screen('main') 실패:", e)
             return

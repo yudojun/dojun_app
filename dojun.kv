@@ -19,7 +19,7 @@ ScreenManager:
         MDBoxLayout:
             orientation: "vertical"
             size_hint_y: None
-            height: dp(104)
+            height: dp(96)
             md_bg_color: 0.13, 0.58, 0.92, 1
 
             MDTopAppBar:
@@ -28,8 +28,8 @@ ScreenManager:
 
                 MDBoxLayout:
                     adaptive_width: True
-                    padding: dp(8), 0
-                    spacing: dp(6)
+                    padding: dp(12), 0
+                    spacing: dp(8)
 
                     MDIconButton:
                         icon: "history"
@@ -46,7 +46,7 @@ ScreenManager:
             MDLabel:
                 text: "이번주 주요 쟁점 사항"
                 font_name: "Nanum"
-                font_size: "20sp"
+                font_size: "18sp"
                 bold: True
                 halign: "center"
                 valign: "middle"
@@ -68,6 +68,10 @@ ScreenManager:
             MDList:
                 id: issue_list
                 adaptive_height: True
+                padding: dp(8)
+                spacing: dp(8)
+
+                
 
 
 
