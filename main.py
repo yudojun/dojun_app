@@ -1,7 +1,6 @@
 import os
 import json
 import requests
-import sqlite3
 
 from kivy.core.text import LabelBase
 from kivy.lang import Builder
@@ -28,6 +27,7 @@ from kivy.animation import Animation
 from kivy.uix.screenmanager import SlideTransition
 from kivy.utils import platform
 from kivy.core.window import Window
+from firestore_client import load_issues_from_firestore
 
 if platform in ("win", "linux", "macosx"):
     Window.size = (360, 640)
@@ -59,7 +59,6 @@ REMOTE_VERSION_URL = (
     "https://raw.githubusercontent.com/yudojun/dojun_app/main/remote_version.json"
 )
 LOCAL_VERSION_FILE = "local_version.json"
-LOCAL_DB_FILE = "data/issues.db"
 
 
 # =============================
@@ -91,32 +90,6 @@ def get_local_version():
         return json.load(f).get("version", 0)
 
 
-def download_db(url):
-    os.makedirs("data", exist_ok=True)
-    r = requests.get(url, stream=True, timeout=10)
-    r.raise_for_status()
-    with open(LOCAL_DB_FILE, "wb") as f:
-        for chunk in r.iter_content(1024):
-            f.write(chunk)
-
-
-def update_db_if_needed():
-    try:
-        local_v = get_local_version()
-        remote = get_update_info()
-        remote_v = remote.get("version", 0)
-        db_url = remote.get("url")
-
-        if remote_v > local_v and db_url:
-            download_db(db_url)
-            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
-                json.dump({"version": remote_v}, f)
-            return "updated"
-        return "latest"
-    except Exception:
-        return "error"
-
-
 def has_new_update():
     try:
         data = get_remote_versions()
@@ -141,26 +114,10 @@ def has_new_update():
 # =============================
 # DB
 # =============================
-def load_issues():
-    try:
-        if not os.path.exists(LOCAL_DB_FILE):
-            print("⚠ DB 파일 없음")
-            return []
-
-        conn = sqlite3.connect(LOCAL_DB_FILE)
-        cur = conn.cursor()
-        cur.execute("SELECT title, summary, company, union_opt FROM issues")
-        rows = cur.fetchall()
-        conn.close()
-        return rows
-
-    except Exception as e:
-        print("❌ DB 로드 실패:", e)
-        return []
 
 
 def get_filtered_issues(tab="전체"):
-    rows = load_issues()
+    rows = load_issues_from_firestore()
 
     def match(row):
         _, _, company, union_opt = row
@@ -439,70 +396,39 @@ class MainScreen(MDScreen):
 
 
 class DetailScreen(MDScreen):
-    def set_detail(self, title):
+    def set_detail(self, title, summary, company, union_opt):
         self.ids.detail_box.clear_widgets()
 
-        conn = sqlite3.connect(LOCAL_DB_FILE)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT summary, company, union_opt FROM issues WHERE title=?",
-            (title,),
-        )
-        row = cur.fetchone()
-        conn.close()
-
-        if not row:
-            return
-
         labels = ["핵심 요약", "회사안", "조합안"]
-        for i, text in enumerate(row):
+        values = [summary, company, union_opt]
+
+        for label, text in zip(labels, values):
             card = MDCard(
                 orientation="vertical",
-                padding=(dp(16), dp(14)),  # 좌우 / 상하 분리
+                padding=(dp(16), dp(14)),
                 radius=[14],
                 size_hint_y=None,
             )
-
             card.bind(minimum_height=card.setter("height"))
-
-            title_box = MDBoxLayout(
-                orientation="horizontal",
-                spacing=dp(8),
-                size_hint_y=None,
-                height=dp(32),
-            )
-
-            title_box.add_widget(
-                MDIcon(
-                    icon="file-document-outline",
-                    size_hint=(None, None),
-                    size=(dp(24), dp(24)),
-                    theme_text_color="Primary",
-                )
-            )
-
-            title_box.add_widget(
-                MDLabel(
-                    text=labels[i],
-                    font_name="Nanum",
-                    font_size="17sp",
-                    bold=True,
-                    color=(0.1, 0.1, 0.1, 1),  # 진한 회색
-                    valign="middle",
-                )
-            )
-
-            card.add_widget(title_box)
 
             card.add_widget(
                 MDLabel(
-                    text=text or "",
+                    text=label,
                     font_name="Nanum",
-                    size_hint_y=None,
-                    line_height=1.4,
-                    theme_text_color="Primary",
+                    bold=True,
+                    font_size="17sp",
                 )
             )
+
+            card.add_widget(
+                MDLabel(
+                    text=text or "(내용 없음)",
+                    font_name="Nanum",
+                    line_height=1.4,
+                    size_hint_y=None,
+                )
+            )
+
             self.ids.detail_box.add_widget(card)
 
 
@@ -653,7 +579,6 @@ class MainApp(MDApp):
         print("=== safe_update_check ===")
 
         try:
-            status = update_db_if_needed()
 
             main = self.root.get_screen("main")
 
@@ -708,7 +633,7 @@ class MainApp(MDApp):
         # 3) 무거운 건 지연 실행
         Clock.schedule_once(self.safe_update_check, 1)
 
-    def open_detail(self, title):
+    def open_detail(self, title, summary, company, union_opt):
         print("=== open_detail ===", title)
 
         if self.is_navigating:
@@ -719,25 +644,24 @@ class MainApp(MDApp):
 
         try:
             detail = self.root.get_screen("detail")
-            detail.set_detail(title)
+            detail.set_detail(title, summary, company, union_opt)
             self.root.current = "detail"
+
         except Exception as e:
             print("❌ detail 화면 처리 실패:", e)
+
         finally:
-            # 아주 짧게 딜레이 후 해제
             Clock.schedule_once(lambda dt: self._unlock_nav(), 0.3)
 
     def _unlock_nav(self):
         self.is_navigating = False
 
-    def show_update_snackbar(self, status):
+    def show_update_snackbar(self, has_update):
         try:
-            if status == "updated":
-                text = "📦 새로운 쟁점 DB가 업데이트되었습니다"
-            elif status == "latest":
-                text = "✅ 최신 쟁점 DB입니다"
+            if has_update:
+                text = "🔔 새로운 쟁점이 있습니다"
             else:
-                text = "⚠ 업데이트 상태를 확인할 수 없습니다"
+                text = "✅ 최신 쟁점입니다"
 
             Snackbar(text=text, duration=2).open()
 
