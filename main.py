@@ -7,28 +7,23 @@ from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.core.window import Window
 from kivy.properties import StringProperty
+from kivy.clock import Clock
 from kivy.animation import Animation
+from kivy.utils import platform
 
 from kivymd.app import MDApp
 from kivymd.uix.screen import MDScreen
-from kivymd.uix.list import TwoLineAvatarIconListItem, IconLeftWidget
 from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix.label import MDLabel
+from kivymd.uix.label import MDLabel, MDIcon
 from kivymd.uix.card import MDCard
-from kivymd.uix.label import MDIcon
-from kivymd.uix.snackbar import Snackbar
 from kivymd.uix.tab import MDTabsBase
-from kivymd.uix.button import MDFlatButton
-from functools import partial
-from kivymd.uix.button import MDIconButton
-from kivy.app import App
-from kivy.clock import Clock
-from kivy.animation import Animation
-from kivy.uix.screenmanager import SlideTransition
-from kivy.utils import platform
-from kivy.core.window import Window
-from firestore_client import load_issues_from_firestore
+from kivymd.uix.button import MDIconButton, MDFlatButton
+from api_client import fetch_issues
 
+
+# =============================
+# Desktop 개발용 창 크기 고정
+# =============================
 if platform in ("win", "linux", "macosx"):
     Window.size = (360, 640)
     Window.minimum_width = 360
@@ -53,7 +48,7 @@ LabelBase.register(
 
 
 # =============================
-# 경로 / URL
+# 업데이트 내역 JSON (history)
 # =============================
 REMOTE_VERSION_URL = (
     "https://raw.githubusercontent.com/yudojun/dojun_app/main/remote_version.json"
@@ -61,44 +56,29 @@ REMOTE_VERSION_URL = (
 LOCAL_VERSION_FILE = "local_version.json"
 
 
-# =============================
-# 업데이트 정보
-# =============================
 def get_remote_versions():
     try:
         r = requests.get(REMOTE_VERSION_URL, timeout=5)
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        print("❌ 업데이트 JSON 로드 실패:", e)
+        print("❌ remote_version.json 로드 실패:", e)
         return None
 
 
-def get_update_info():
-    try:
-        r = requests.get(REMOTE_VERSION_URL, timeout=5)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return {"version": "?", "message": f"업데이트 정보 오류\n{e}"}
-
-
-def get_local_version():
-    if not os.path.exists(LOCAL_VERSION_FILE):
-        return 0
-    with open(LOCAL_VERSION_FILE, "r", encoding="utf-8") as f:
-        return json.load(f).get("version", 0)
-
-
 def has_new_update():
+    """
+    latest_version 값이 바뀌었는지 표시(점 깜빡임)
+    """
     try:
         data = get_remote_versions()
         if not data:
             return False
 
         latest = data.get("latest_version")
+        if not latest:
+            return False
 
-        # local_version.json 없으면 = 처음 실행 = 업데이트 있음
         if not os.path.exists(LOCAL_VERSION_FILE):
             return True
 
@@ -106,40 +86,74 @@ def has_new_update():
             local = json.load(f).get("last_seen_version")
 
         return latest != local
+
     except Exception as e:
-        print("❌ 업데이트 비교 실패:", e)
+        print("❌ has_new_update 실패:", e)
         return False
 
 
-# =============================
-# DB
-# =============================
-
-
 def get_filtered_issues(tab="전체"):
-    rows = load_issues_from_firestore()
+    """
+    서버(FastAPI)에서 /issues JSON을 받아서
+    기존 UI가 기대하는 튜플 형태로 변환 + 탭 필터 적용
+    반환: (title, summary, company, union_opt) 리스트
+    """
+    rows = fetch_issues()
 
     def match(row):
-        _, _, company, union_opt = row
         if tab == "회사안":
-            return bool(company and company.strip())
+            return bool(row.get("company"))
         if tab == "조합안":
-            return bool(union_opt and union_opt.strip())
+            return bool(row.get("union"))
         return True
 
-    return [r for r in rows if match(r)]
+    return [
+        (
+            row.get("title", ""),
+            row.get("summary", ""),
+            row.get("company", ""),
+            row.get("union", ""),
+        )
+        for row in rows
+        if match(row)
+    ]
 
 
+def match(row):
+    if tab == "회사안":
+        return row.get("company")
+    if tab == "조합안":
+        return row.get("union")
+    return True
+
+    return [
+        (
+            row.get("title", ""),
+            row.get("summary", ""),
+            row.get("company", ""),
+            row.get("union", ""),
+        )
+        for row in rows
+        if match(row)
+    ]
+
+
+# =============================
+# Tabs용 클래스
+# =============================
 class Tab(MDBoxLayout, MDTabsBase):
     pass
 
 
+# =============================
+# 카드(펼침 UI)
+# =============================
 class ExpandableIssueCard(MDCard):
     def __init__(self, title, summary, company, union_opt, parent_screen, **kwargs):
         super().__init__(**kwargs)
 
         self.parent_screen = parent_screen
-        self.title = title
+        self.title = title or ""
         self.summary = summary or ""
         self.company = company or ""
         self.union_opt = union_opt or ""
@@ -150,7 +164,7 @@ class ExpandableIssueCard(MDCard):
         self.elevation = 1
         self.size_hint_y = None
 
-        # ---- 헤더(항상 보이는 부분) ----
+        # ---- 헤더 ----
         header = MDBoxLayout(
             orientation="horizontal",
             spacing=dp(10),
@@ -168,7 +182,7 @@ class ExpandableIssueCard(MDCard):
         )
 
         self.title_label = MDLabel(
-            text=title,
+            text=self.title,
             font_name="Nanum",
             bold=True,
             font_size="16sp",
@@ -186,24 +200,22 @@ class ExpandableIssueCard(MDCard):
 
         self.add_widget(header)
 
-        # ---- 내용(접혔다 펼쳐지는 부분) ----
+        # ---- 펼쳐지는 영역 ----
         self.content = MDBoxLayout(
             orientation="vertical",
             spacing=dp(10),
-            padding=(dp(34), dp(6), dp(4), dp(6)),  # 아이콘 자리만큼 왼쪽 여백
+            padding=(dp(34), dp(6), dp(4), dp(6)),
             size_hint_y=None,
             opacity=0,
             height=0,
         )
 
-        # 내용 구성 (필요하면 여기 문구 바꿔도 됨)
         self.content.add_widget(self._section("핵심 요약", self.summary))
         self.content.add_widget(self._section("회사안", self.company))
         self.content.add_widget(self._section("조합안", self.union_opt))
 
         self.add_widget(self.content)
 
-        # 카드 전체 높이(헤더만 보일 때)
         self._collapsed_height = dp(56)
         self.height = self._collapsed_height
         self._opened = False
@@ -222,9 +234,10 @@ class ExpandableIssueCard(MDCard):
                 height=dp(18),
             )
         )
+
         box.add_widget(
             MDLabel(
-                text=body if body.strip() else "(내용 없음)",
+                text=body.strip() if body and body.strip() else "(내용 없음)",
                 font_name="Nanum",
                 line_height=1.35,
                 size_hint_y=None,
@@ -244,58 +257,34 @@ class ExpandableIssueCard(MDCard):
             self._opened = True
             self.chev.icon = "chevron-up"
 
-            target_height = self.content.minimum_height
+            target_h = self.content.minimum_height
 
             self.content.opacity = 0
             self.content.height = 0
 
+            Animation(height=target_h, opacity=1, d=0.18, t="out_quad").start(
+                self.content
+            )
             Animation(
-                height=target_height,
-                opacity=1,
-                d=0.2,
-                t="out_quad",
-            ).start(self.content)
-
-            Animation(
-                height=self._collapsed_height + target_height,
-                d=0.2,
-                t="out_quad",
+                height=self._collapsed_height + target_h, d=0.18, t="out_quad"
             ).start(self)
 
             ps.opened_card = self
-
         else:
-            self._opened = False
-            self.chev.icon = "chevron-down"
-
-            self.content.opacity = 0
-            self.content.height = 0
-            self.height = self._collapsed_height
-
-            ps.opened_card = None
+            self.force_close()
 
     def force_close(self):
-        """다른 카드가 열릴 때 강제로 닫히는 함수"""
         if not self._opened:
             return
 
         self._opened = False
         self.chev.icon = "chevron-down"
 
-        Animation(
-            height=0,
-            opacity=0,
-            d=0.15,
-            t="out_quad",
-        ).start(self.content)
+        Animation(height=0, opacity=0, d=0.14, t="out_quad").start(self.content)
+        Animation(height=self._collapsed_height, d=0.14, t="out_quad").start(self)
 
-        Animation(
-            height=self._collapsed_height,
-            d=0.15,
-            t="out_quad",
-        ).start(self)
-
-        ps.opened_card = None
+        if self.parent_screen:
+            self.parent_screen.opened_card = None
 
 
 # =============================
@@ -303,66 +292,43 @@ class ExpandableIssueCard(MDCard):
 # =============================
 class MainScreen(MDScreen):
     current_tab = "전체"
-    update_text = StringProperty("")
     opened_card = None
-
     _last_loaded_tab = None
 
+    def on_tab_switch(self, tabs, tab, tab_label, tab_text):
+        if self.current_tab == tab_text:
+            return
+
+        self.current_tab = tab_text
+        self._last_loaded_tab = None
+        self.populate_main_list()
+
+    def on_kv_post(self, base_widget):
+        self._last_loaded_tab = None
+        self.populate_main_list()
+
     def populate_main_list(self):
-        self.opened_card = None
         if self._last_loaded_tab == self.current_tab:
             return
 
-        print("=== populate_main_list start ===")
-        self.ids.issue_list.clear_widgets()
+        issue_list = self.ids.get("issue_list")
+        if issue_list:
+            issue_list.clear_widgets()
+
+        self.opened_card = None
 
         issues = get_filtered_issues(self.current_tab)
 
-        # ===== 🔥 EMPTY STATE 처리 =====
         if not issues:
-            empty_card = MDCard(
-                orientation="vertical",
-                padding=(dp(20), dp(20)),
-                radius=[14],
-                elevation=0,
-                md_bg_color=(0.96, 0.96, 0.96, 1),
-                size_hint_y=None,
-            )
-            empty_card.bind(minimum_height=empty_card.setter("height"))
-
-            empty_card.add_widget(
-                MDLabel(
-                    text="📭 현재 등록된 쟁점이 없습니다",
-                    font_name="Nanum",
-                    font_size="16sp",
-                    halign="center",
-                    theme_text_color="Secondary",
-                    size_hint_y=None,
-                    height=dp(32),
-                )
-            )
-
-            empty_card.add_widget(
-                MDLabel(
-                    text="새로운 쟁점이 등록되면\n이곳에 자동으로 표시됩니다.",
-                    font_name="Nanum",
-                    halign="center",
-                    theme_text_color="Secondary",
-                    size_hint_y=None,
-                )
-            )
-
-            self.ids.issue_list.add_widget(empty_card)
+            self._add_empty_state()
             self._last_loaded_tab = self.current_tab
             return
-        # ===== 🔥 EMPTY STATE 끝 =====
 
-        seen_titles = set()
-
+        seen = set()
         for title, summary, company, union_opt in issues:
-            if title in seen_titles:
+            if title in seen:
                 continue
-            seen_titles.add(title)
+            seen.add(title)
 
             card = ExpandableIssueCard(
                 title=title,
@@ -375,78 +341,48 @@ class MainScreen(MDScreen):
 
         self._last_loaded_tab = self.current_tab
 
-    def on_tab_switch(self, *args):
-        new_tab = args[-1]
-        if self.current_tab == new_tab:
-            return
+    def _add_empty_state(self):
+        card = MDCard(
+            orientation="vertical",
+            padding=(dp(20), dp(20)),
+            radius=[14],
+            elevation=0,
+            md_bg_color=(0.96, 0.96, 0.96, 1),
+            size_hint_y=None,
+        )
+        card.bind(minimum_height=card.setter("height"))
 
-        self.current_tab = new_tab
+        card.add_widget(
+            MDLabel(
+                text="📭 현재 등록된 쟁점이 없습니다",
+                font_name="Nanum",
+                halign="center",
+                theme_text_color="Secondary",
+                size_hint_y=None,
+                height=dp(32),
+            )
+        )
+        self.ids.issue_list.add_widget(card)
 
-        # 🔹 리스트 페이드 아웃 → 인
-        lst = self.ids.issue_list
-        Animation(opacity=0, d=0.08).start(lst)
+        self._last_loaded_tab = self.current_tab
 
-        def reload(dt):
-            self._last_loaded_tab = None  # 강제 리로드
+        def on_tab_switch(self, tabs, tab, tab_label, tab_text):
+            self.current_tab = tab_text
+            self._last_loaded_tab = None
             self.populate_main_list()
-            lst.parent.scroll_y = 1
+
+        def _reload(dt):
+            self._last_loaded_tab = None
+            self.populate_main_list()
             Animation(opacity=1, d=0.12).start(lst)
 
-        Clock.schedule_once(reload, 0.08)
-
-
-class DetailScreen(MDScreen):
-    def set_detail(self, title, summary, company, union_opt):
-        self.ids.detail_box.clear_widgets()
-
-        labels = ["핵심 요약", "회사안", "조합안"]
-        values = [summary, company, union_opt]
-
-        for label, text in zip(labels, values):
-            card = MDCard(
-                orientation="vertical",
-                padding=(dp(16), dp(14)),
-                radius=[14],
-                size_hint_y=None,
-            )
-            card.bind(minimum_height=card.setter("height"))
-
-            card.add_widget(
-                MDLabel(
-                    text=label,
-                    font_name="Nanum",
-                    bold=True,
-                    font_size="17sp",
-                )
-            )
-
-            card.add_widget(
-                MDLabel(
-                    text=text or "(내용 없음)",
-                    font_name="Nanum",
-                    line_height=1.4,
-                    size_hint_y=None,
-                )
-            )
-
-            self.ids.detail_box.add_widget(card)
+        Clock.schedule_once(_reload, 0.08)
 
 
 class UpdateHistoryScreen(MDScreen):
     def on_enter(self):
-        # ✅ 업데이트 확인 처리 (여기서 핵심)
-        data = get_remote_versions()
-        if data:
-            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"last_seen_version": data.get("latest_version")},
-                    f,
-                    ensure_ascii=False,
-                )
-
         container = self.ids.history_container
         container.clear_widgets()
-        ...
 
         data = get_remote_versions()
         if not data:
@@ -461,8 +397,15 @@ class UpdateHistoryScreen(MDScreen):
         latest_version = data.get("latest_version")
         versions = data.get("versions", [])
 
+        # 방문 표시(새 점 끄기)
+        try:
+            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
+                json.dump({"last_seen_version": latest_version}, f, ensure_ascii=False)
+        except Exception as e:
+            print("❌ local_version 저장 실패:", e)
+
         for v in versions:
-            is_latest = v["version"] == latest_version
+            is_latest = v.get("version") == latest_version
 
             card = MDCard(
                 orientation="vertical",
@@ -473,10 +416,8 @@ class UpdateHistoryScreen(MDScreen):
                 md_bg_color=(1, 1, 1, 1),
                 size_hint_y=None,
             )
-
             card.bind(minimum_height=card.setter("height"))
 
-            # ---------- Header ----------
             header = MDBoxLayout(
                 orientation="horizontal",
                 size_hint_y=None,
@@ -484,7 +425,7 @@ class UpdateHistoryScreen(MDScreen):
                 padding=(dp(12), 0),
             )
 
-            title_text = f"[b]버전 {v['version']}[/b]"
+            title_text = f"[b]버전 {v.get('version','?')}[/b]"
             if is_latest:
                 title_text += "  [color=#E53935]NEW[/color]"
 
@@ -506,7 +447,6 @@ class UpdateHistoryScreen(MDScreen):
             header.add_widget(toggle_btn)
             card.add_widget(header)
 
-            # ---------- Content ----------
             content = MDBoxLayout(
                 orientation="vertical",
                 padding=(dp(16), dp(8)),
@@ -514,13 +454,14 @@ class UpdateHistoryScreen(MDScreen):
                 size_hint_y=None,
             )
 
-            content.add_widget(
-                MDLabel(
-                    text=f"☑ {v['title']}",
-                    font_name="Nanum",
-                    size_hint_y=None,
+            if v.get("title"):
+                content.add_widget(
+                    MDLabel(
+                        text=f"☑ {v['title']}",
+                        font_name="Nanum",
+                        size_hint_y=None,
+                    )
                 )
-            )
 
             for item in v.get("items", []):
                 content.add_widget(
@@ -552,7 +493,6 @@ class UpdateHistoryScreen(MDScreen):
 
             card.add_widget(content)
 
-            # ---------- Toggle ----------
             def make_toggle(cbox):
                 def _toggle(*args):
                     if cbox.height == 0:
@@ -565,7 +505,6 @@ class UpdateHistoryScreen(MDScreen):
                 return _toggle
 
             toggle_btn.bind(on_release=make_toggle(content))
-
             container.add_widget(card)
 
 
@@ -573,140 +512,50 @@ class UpdateHistoryScreen(MDScreen):
 # App
 # =============================
 class MainApp(MDApp):
-    is_navigating = False
+    def build(self):
+        return Builder.load_file("dojun.kv")
 
-    def safe_update_check(self, dt):
-        print("=== safe_update_check ===")
+    def on_start(self):
+        # 탭 구성 (KV에서 텅 비어있으니 여기서 생성)
+        main = self.root.get_screen("main")
 
-        try:
+        # 업데이트 점 표시
+        Clock.schedule_once(lambda dt: self._apply_update_dot(), 0.6)
 
-            main = self.root.get_screen("main")
-
-            if has_new_update():
-                self.start_update_dot_animation()
-            else:
-                main.ids.update_dot.opacity = 0
-
-            self.show_update_snackbar(status)
-
-        except Exception as e:
-            print("❌ update check failed:", e)
+    def _apply_update_dot(self):
+        main = self.root.get_screen("main")
+        if has_new_update():
+            self.start_update_dot_animation()
+        else:
+            dot = main.ids.get("update_dot")
+            if dot:
+                dot.opacity = 1
+                Animation.cancel_all(dot)
 
     def start_update_dot_animation(self):
-        print("=== start_update_dot_animation ===")
-
-        try:
-            main = self.root.get_screen("main")
-            dot = main.ids.update_dot
-        except Exception as e:
-            print("❌ update_dot 접근 실패:", e)
-            return
-
+        main = self.root.get_screen("main")
+        dot = main.ids.update_dot
         dot.opacity = 1
         Animation.cancel_all(dot)
         anim = Animation(opacity=0.3, d=0.8) + Animation(opacity=1, d=0.8)
         anim.repeat = True
         anim.start(dot)
 
-    def build(self):
-        print("=== build() called ===")
-        return Builder.load_file("dojun.kv")
-
-    def on_start(self):
-        print("=== on_start ===")
-
-        # 1) main screen 잡기 (보호막)
-        try:
-            main = self.root.get_screen("main")
-        except Exception as e:
-            print("❌ get_screen('main') 실패:", e)
-            return  # main을 못 잡으면 더 진행하지 말고 종료(앱은 유지)
-
-        # 2) main 초기화 (보호막)
-        try:
-            main._last_loaded_tab = None  # 강제 초기화
-            main.populate_main_list()
-            main.ids.tabs.bind(on_tab_switch=main.on_tab_switch)
-        except Exception as e:
-            print("❌ main 초기화 실패:", e)
-
-        # 3) 무거운 건 지연 실행
-        Clock.schedule_once(self.safe_update_check, 1)
-
-    def open_detail(self, title, summary, company, union_opt):
-        print("=== open_detail ===", title)
-
-        if self.is_navigating:
-            print("⏳ navigation locked")
-            return
-
-        self.is_navigating = True
-
-        try:
-            detail = self.root.get_screen("detail")
-            detail.set_detail(title, summary, company, union_opt)
-            self.root.current = "detail"
-
-        except Exception as e:
-            print("❌ detail 화면 처리 실패:", e)
-
-        finally:
-            Clock.schedule_once(lambda dt: self._unlock_nav(), 0.3)
-
-    def _unlock_nav(self):
-        self.is_navigating = False
-
-    def show_update_snackbar(self, has_update):
-        try:
-            if has_update:
-                text = "🔔 새로운 쟁점이 있습니다"
-            else:
-                text = "✅ 최신 쟁점입니다"
-
-            Snackbar(text=text, duration=2).open()
-
-        except Exception as e:
-            print("❌ Snackbar 실패:", e)
+    def refresh_issues(self):
+        """
+        ⟳ 아이콘 눌렀을 때: Firestore 재로딩
+        """
+        main = self.root.get_screen("main")
+        main._last_loaded_tab = None
+        main.populate_main_list()
 
     def go_history(self):
-        print("=== go_history ===")
-
-        try:
-            data = get_remote_versions()
-            if data:
-                with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {"last_seen_version": data.get("latest_version")},
-                        f,
-                        ensure_ascii=False,
-                    )
-        except Exception as e:
-            print("❌ go_history update 실패:", e)
-
         self.root.current = "history"
 
     def go_main(self):
-        print("=== go_main ===")
-
-        try:
-            main = self.root.get_screen("main")
-            self.root.current = "main"
-        except Exception as e:
-            print("❌ get_screen('main') 실패:", e)
-            return
-
-        try:
-            if has_new_update():
-                self.start_update_dot_animation()
-            else:
-                main.ids.update_dot.opacity = 0
-                Animation.cancel_all(main.ids.update_dot)
-
-            self.root.current = "main"
-        except Exception as e:
-            print("❌ go_main 처리 실패:", e)
+        self.root.current = "main"
+        self._apply_update_dot()
 
 
 if __name__ == "__main__":
-    app = MainApp()
-    app.run()
+    MainApp().run()

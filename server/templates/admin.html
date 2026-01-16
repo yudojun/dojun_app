@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>쟁점 관리자</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px; }
+        input, textarea { width: 100%; margin-bottom: 10px; }
+        button { margin-right: 5px; }
+        .issue { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<h1>쟁점 관리자</h1>
+
+<h2>새 쟁점 등록</h2>
+<input id="title" placeholder="제목">
+<input id="summary" placeholder="요약">
+<textarea id="company" placeholder="회사안"></textarea>
+<textarea id="union_opt" placeholder="조합안"></textarea>
+<input id="order" type="number" placeholder="정렬 순서">
+
+<button onclick="createIssue()">등록</button>
+
+<hr>
+
+<h2>쟁점 목록</h2>
+<div id="list"></div>
+
+<script>
+const API = "/issues";
+
+function loadIssues() {
+    fetch(API)
+        .then(res => res.json())
+        .then(data => {
+            const list = document.getElementById("list");
+            list.innerHTML = "";
+            data.forEach(i => {
+                list.innerHTML += `
+                <div class="issue">
+                    <b>${i.title}</b><br>
+                    ${i.summary}<br>
+                    <button onclick="editIssue('${i.id}')">수정</button>
+                    <button onclick="deleteIssue('${i.id}')">삭제</button>
+                </div>`;
+            });
+        });
+}
+
+function createIssue() {
+    fetch(API, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            title: title.value,
+            summary: summary.value,
+            company: company.value,
+            union_opt: union_opt.value,
+            order: Number(order.value || 0)
+        })
+    }).then(() => {
+        loadIssues();
+    });
+}
+
+function deleteIssue(id) {
+    fetch(`${API}/${id}`, { method: "DELETE" })
+        .then(() => loadIssues());
+}
+
+loadIssues();
+</script>
+<script>
+let editingId = null;
+
+function editIssue(id) {
+    fetch(`/issues`)
+        .then(res => res.json())
+        .then(data => {
+            const issue = data.find(i => i.id === id);
+            if (!issue) return;
+
+            title.value = issue.title;
+            summary.value = issue.summary;
+            company.value = issue.company;
+            union_opt.value = issue.union;
+            order.value = issue.order || 0;
+
+            editingId = id;
+        });
+}
+
+function createIssue() {
+    const payload = {
+        title: title.value,
+        summary: summary.value,
+        company: company.value,
+        union_opt: union_opt.value,
+        order: Number(order.value || 0)
+    };
+
+    if (editingId) {
+        fetch(`/issues/${editingId}`, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        }).then(() => {
+            editingId = null;
+            clearForm();
+            loadIssues();
+        });
+    } else {
+        fetch(`/issues`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        }).then(() => {
+            clearForm();
+            loadIssues();
+        });
+    }
+}
+
+function clearForm() {
+    title.value = "";
+    summary.value = "";
+    company.value = "";
+    union_opt.value = "";
+    order.value = "";
+}
+</script>
+
+</body>
+</html>
