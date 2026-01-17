@@ -9,6 +9,10 @@ from fastapi.templating import Jinja2Templates
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 security = HTTPBasic()
 
@@ -40,8 +44,13 @@ db = firestore.client()
 
 
 def admin_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = "*ydj"
-    correct_password = "301004"  # 나중에 반드시 바꿔라
+    correct_username = os.getenv("ADMIN_USERNAME")
+    correct_password = os.getenv("ADMIN_PASSWORD")
+
+    if not correct_username or not correct_password:
+        raise RuntimeError(
+            "ADMIN_USERNAME / ADMIN_PASSWORD 환경변수가 설정되지 않았습니다"
+        )
 
     is_user_ok = secrets.compare_digest(credentials.username, correct_username)
     is_pass_ok = secrets.compare_digest(credentials.password, correct_password)

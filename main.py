@@ -1,13 +1,11 @@
 import os
 import json
-import requests
 
 from kivy.core.text import LabelBase
 from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.core.window import Window
 from kivy.properties import StringProperty
-from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.utils import platform
 
@@ -18,7 +16,27 @@ from kivymd.uix.label import MDLabel, MDIcon
 from kivymd.uix.card import MDCard
 from kivymd.uix.tab import MDTabsBase
 from kivymd.uix.button import MDIconButton, MDFlatButton
-from api_client import fetch_issues
+from kivy.clock import Clock
+from firestore_client import fetch_issues
+from firestore_client import fetch_remote_version
+
+FIRESTORE_PROJECT_ID = "unionapp"
+ISSUES_COLLECTION = "issues"
+
+LOCAL_ISSUES = [
+    {
+        "title": "보건휴가 관련 회의",
+        "summary": "조합안",
+        "company": "회사안 절대 반대",
+        "union": "조합안",
+    },
+    {
+        "title": "임금교섭 3차 - 격차 조정 논의",
+        "summary": "조합안",
+        "company": "",
+        "union": "격차 해소 + 기본급 조정",
+    },
+]
 
 
 # =============================
@@ -50,55 +68,31 @@ LabelBase.register(
 # =============================
 # 업데이트 내역 JSON (history)
 # =============================
-REMOTE_VERSION_URL = (
-    "https://raw.githubusercontent.com/yudojun/dojun_app/main/remote_version.json"
-)
+
 LOCAL_VERSION_FILE = "local_version.json"
 
 
-def get_remote_versions():
+def get_local_version():
     try:
-        r = requests.get(REMOTE_VERSION_URL, timeout=5)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        print("❌ remote_version.json 로드 실패:", e)
-        return None
-
-
-def has_new_update():
-    """
-    latest_version 값이 바뀌었는지 표시(점 깜빡임)
-    """
-    try:
-        data = get_remote_versions()
-        if not data:
-            return False
-
-        latest = data.get("latest_version")
-        if not latest:
-            return False
-
-        if not os.path.exists(LOCAL_VERSION_FILE):
-            return True
-
         with open(LOCAL_VERSION_FILE, "r", encoding="utf-8") as f:
-            local = json.load(f).get("last_seen_version")
+            return json.load(f).get("version", 0)
+    except FileNotFoundError:
+        return 0
 
-        return latest != local
 
-    except Exception as e:
-        print("❌ has_new_update 실패:", e)
-        return False
+def save_local_version(version):
+    with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
+        json.dump({"version": version}, f)
+
+
+def check_update_available():
+    local_v = get_local_version()
+    remote_v = fetch_remote_version()
+    return remote_v > local_v
 
 
 def get_filtered_issues(tab="전체"):
-    """
-    서버(FastAPI)에서 /issues JSON을 받아서
-    기존 UI가 기대하는 튜플 형태로 변환 + 탭 필터 적용
-    반환: (title, summary, company, union_opt) 리스트
-    """
-    rows = fetch_issues()
+    rows = LOCAL_ISSUES
 
     def match(row):
         if tab == "회사안":
@@ -109,29 +103,10 @@ def get_filtered_issues(tab="전체"):
 
     return [
         (
-            row.get("title", ""),
-            row.get("summary", ""),
-            row.get("company", ""),
-            row.get("union", ""),
-        )
-        for row in rows
-        if match(row)
-    ]
-
-
-def match(row):
-    if tab == "회사안":
-        return row.get("company")
-    if tab == "조합안":
-        return row.get("union")
-    return True
-
-    return [
-        (
-            row.get("title", ""),
-            row.get("summary", ""),
-            row.get("company", ""),
-            row.get("union", ""),
+            row.get("title"),
+            row.get("summary"),
+            row.get("company"),
+            row.get("union"),
         )
         for row in rows
         if match(row)
@@ -149,77 +124,118 @@ class Tab(MDBoxLayout, MDTabsBase):
 # 카드(펼침 UI)
 # =============================
 class ExpandableIssueCard(MDCard):
-    def __init__(self, title, summary, company, union_opt, parent_screen, **kwargs):
+    def __init__(
+        self, title, summary, company, union, parent_screen, mode="전체", **kwargs
+    ):
         super().__init__(**kwargs)
 
-        self.parent_screen = parent_screen
+        self._content_built = False
+        self.size_hint_y = None
+        self.bind(minimum_height=self.setter("height"))
+
+        # 🔥 여기 핵심 수정
+        self.issue = {
+            "title": title,
+            "summary": summary,
+            "company": company,
+            "union": union,  # ✅
+        }
+
+        self.mode = mode
         self.title = title or ""
         self.summary = summary or ""
         self.company = company or ""
-        self.union_opt = union_opt or ""
+        self.union = union or ""  # ✅
 
         self.orientation = "vertical"
         self.padding = (dp(18), dp(16))
         self.radius = [14]
         self.elevation = 1
-        self.size_hint_y = None
 
-        # ---- 헤더 ----
+        # 헤더 (이건 이미 잘 돼 있음)
         header = MDBoxLayout(
             orientation="horizontal",
-            spacing=dp(10),
             size_hint_y=None,
             height=dp(44),
+            spacing=dp(10),
         )
-
-        header.add_widget(
-            MDIcon(
-                icon="file-document-outline",
-                size_hint=(None, None),
-                size=(dp(24), dp(24)),
-                theme_text_color="Primary",
-            )
-        )
-
-        self.title_label = MDLabel(
-            text=self.title,
-            font_name="Nanum",
-            bold=True,
-            font_size="16sp",
-            valign="middle",
-        )
-
-        self.chev = MDIconButton(
-            icon="chevron-down",
-            pos_hint={"center_y": 0.5},
-            on_release=self.toggle,
-        )
-
-        header.add_widget(self.title_label)
-        header.add_widget(self.chev)
-
+        header.add_widget(MDIcon(icon="file-document-outline"))
+        header.add_widget(MDLabel(text=self.title, bold=True))
         self.add_widget(header)
 
-        # ---- 펼쳐지는 영역 ----
-        self.content = MDBoxLayout(
-            orientation="vertical",
-            spacing=dp(10),
-            padding=(dp(34), dp(6), dp(4), dp(6)),
-            size_hint_y=None,
-            opacity=0,
-            height=0,
-        )
+        if not self._content_built:
+            # 내용
+            self.content = MDBoxLayout(
+                orientation="vertical",
+                spacing=dp(10),
+                size_hint_y=None,
+                opacity=1,
+            )
 
-        self.content.add_widget(self._section("핵심 요약", self.summary))
-        self.content.add_widget(self._section("회사안", self.company))
-        self.content.add_widget(self._section("조합안", self.union_opt))
+            tag_text = "조합안" if self.mode == "조합안" else "회사안"
 
-        self.add_widget(self.content)
+            tag = MDLabel(
+                text=f"[{tag_text}]",
+                halign="left",
+                size_hint_y=None,
+                height=dp(20),
+                font_size="12sp",
+                color=(0.2, 0.5, 0.9, 1),
+            )
+            self.content.add_widget(tag)
 
-        self._collapsed_height = dp(56)
-        self.height = self._collapsed_height
-        self._opened = False
+            summary_title = MDLabel(
+                text="[b]회의 요약[/b]",
+                markup=True,
+                font_size="12sp",
+                size_hint_y=None,
+                color=(0.5, 0.5, 0.5, 1),
+            )
+            self.content.add_widget(summary_title)
 
+            company_title = MDLabel(
+                text="[b]회사 측 입장[/b]",
+                markup=True,
+                font_size="13sp",
+                size_hint_y=None,
+            )
+            company_body = MDLabel(
+                text=self.company,
+                font_size="13sp",
+                size_hint_y=None,
+                text_size=(Window.width - dp(64), None),
+            )
+            company_body.bind(texture_size=company_body.setter("size"))
+            self.content.add_widget(company_title)
+            self.content.add_widget(company_body)
+
+            union_title = MDLabel(
+                text="[b]조합 측 입장[/b]",
+                markup=True,
+                font_size="13sp",
+                size_hint_y=None,
+                color=(0.2, 0.5, 0.9, 1),
+            )
+            union_body = MDLabel(
+                text=self.union,
+                font_size="14sp",
+                bold=True,
+                size_hint_y=None,
+                text_size=(Window.width - dp(64), None),
+            )
+            union_body.bind(texture_size=union_body.setter("size"))
+            self.content.add_widget(union_title)
+            self.content.add_widget(union_body)
+
+            self.content.bind(minimum_height=self.content.setter("height"))
+
+            self.add_widget(self.content)
+
+            self._content_built = True  # 🔥 이 줄이 핵심
+
+    # =========================
+    # 공통 섹션 생성기
+    # =========================
     def _section(self, title, body):
         box = MDBoxLayout(orientation="vertical", spacing=dp(4), size_hint_y=None)
         box.bind(minimum_height=box.setter("height"))
@@ -227,8 +243,8 @@ class ExpandableIssueCard(MDCard):
         box.add_widget(
             MDLabel(
                 text=title,
-                font_name="Nanum",
                 bold=True,
+                font_name="Nanum",
                 font_size="14sp",
                 size_hint_y=None,
                 height=dp(18),
@@ -237,13 +253,32 @@ class ExpandableIssueCard(MDCard):
 
         box.add_widget(
             MDLabel(
-                text=body.strip() if body and body.strip() else "(내용 없음)",
+                text=body.strip() if body else "(내용 없음)",
                 font_name="Nanum",
                 line_height=1.35,
                 size_hint_y=None,
             )
         )
         return box
+
+    # =========================
+    # 🔽 여기부터가 3번 핵심
+    # =========================
+    def _build_all_view(self):
+        self.content.add_widget(self._section("핵심 요약", self.summary))
+
+    def _build_company_view(self):
+        text = self.company if self.company else "회사 측 공식 입장 정리 전입니다."
+        self.content.add_widget(self._section("회사 측 입장", text))
+
+    def _build_union_view(self):
+        text = self.union_opt if self.union_opt else "조합 요구안 정리 중입니다."
+        self.content.add_widget(self._section("조합 요구", text))
+
+    # =========================
+    # 토글 로직
+    # =========================
+    def toggle(self, *args): ...
 
     def toggle(self, *args):
         ps = self.parent_screen
@@ -295,19 +330,20 @@ class MainScreen(MDScreen):
     opened_card = None
     _last_loaded_tab = None
 
-    def on_tab_switch(self, tabs, tab, tab_label, tab_text):
-        if self.current_tab == tab_text:
-            return
-
-        self.current_tab = tab_text
-        self._last_loaded_tab = None
-        self.populate_main_list()
+    def on_tab_switch(self, *args):
+        self.current_tab = args[-1]
+        MDApp.get_running_app().refresh_issues()
 
     def on_kv_post(self, base_widget):
         self._last_loaded_tab = None
         self.populate_main_list()
 
     def populate_main_list(self):
+        if not hasattr(self, "_debug_printed"):
+            print("DEBUG current_tab:", self.current_tab)
+            print("DEBUG issues:", get_filtered_issues(self.current_tab))
+            self._debug_printed = True
+
         if self._last_loaded_tab == self.current_tab:
             return
 
@@ -334,8 +370,9 @@ class MainScreen(MDScreen):
                 title=title,
                 summary=summary,
                 company=company,
-                union_opt=union_opt,
+                union=union_opt,
                 parent_screen=self,
+                mode=self.current_tab,
             )
             self.ids.issue_list.add_widget(card)
 
@@ -374,7 +411,6 @@ class MainScreen(MDScreen):
         def _reload(dt):
             self._last_loaded_tab = None
             self.populate_main_list()
-            Animation(opacity=1, d=0.12).start(lst)
 
         Clock.schedule_once(_reload, 0.08)
 
@@ -384,128 +420,99 @@ class UpdateHistoryScreen(MDScreen):
         container = self.ids.history_container
         container.clear_widgets()
 
-        data = get_remote_versions()
-        if not data:
-            container.add_widget(
-                MDLabel(
-                    text="업데이트 정보를 불러올 수 없습니다.",
-                    font_name="Nanum",
-                )
-            )
-            return
+        card = MDCard(
+            orientation="vertical",
+            padding=dp(14),
+            spacing=dp(8),
+            radius=[12],
+            elevation=1,
+            md_bg_color=(1, 1, 1, 1),
+            size_hint_y=None,
+        )
+        card.bind(minimum_height=card.setter("height"))
 
-        latest_version = data.get("latest_version")
-        versions = data.get("versions", [])
+        header = MDBoxLayout(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=dp(44),
+            padding=(dp(12), 0),
+        )
 
-        # 방문 표시(새 점 끄기)
-        try:
-            with open(LOCAL_VERSION_FILE, "w", encoding="utf-8") as f:
-                json.dump({"last_seen_version": latest_version}, f, ensure_ascii=False)
-        except Exception as e:
-            print("❌ local_version 저장 실패:", e)
+        remote_v = fetch_remote_version()
 
-        for v in versions:
-            is_latest = v.get("version") == latest_version
+        header_label = MDLabel(
+            text=f"[b]버전 {remote_v} 업데이트[/b]",
+            markup=True,
+            font_name="Nanum",
+            font_size="16sp",
+            valign="middle",
+        )
 
-            card = MDCard(
-                orientation="vertical",
-                padding=dp(14),
-                spacing=dp(8),
-                radius=[12],
-                elevation=1,
-                md_bg_color=(1, 1, 1, 1),
-                size_hint_y=None,
-            )
-            card.bind(minimum_height=card.setter("height"))
+        header.add_widget(header_label)
+        card.add_widget(header)
 
-            header = MDBoxLayout(
-                orientation="horizontal",
-                size_hint_y=None,
-                height=dp(44),
-                padding=(dp(12), 0),
-            )
+        content = MDBoxLayout(
+            orientation="vertical",
+            padding=(dp(16), dp(8)),
+            spacing=dp(6),
+            size_hint_y=None,
+        )
+        content.bind(minimum_height=content.setter("height"))
 
-            title_text = f"[b]버전 {v.get('version','?')}[/b]"
-            if is_latest:
-                title_text += "  [color=#E53935]NEW[/color]"
-
-            header_label = MDLabel(
-                text=title_text,
-                markup=True,
+        content.add_widget(
+            MDLabel(
+                text="• 주요 쟁점 내용이 업데이트되었습니다.",
                 font_name="Nanum",
-                font_size="16sp",
-                valign="middle",
-            )
-
-            toggle_btn = MDFlatButton(
-                text="",
-                size_hint=(1, 1),
-                md_bg_color=(0, 0, 0, 0),
-            )
-
-            header.add_widget(header_label)
-            header.add_widget(toggle_btn)
-            card.add_widget(header)
-
-            content = MDBoxLayout(
-                orientation="vertical",
-                padding=(dp(16), dp(8)),
-                spacing=dp(6),
                 size_hint_y=None,
             )
+        )
 
-            if v.get("title"):
-                content.add_widget(
-                    MDLabel(
-                        text=f"☑ {v['title']}",
-                        font_name="Nanum",
-                        size_hint_y=None,
-                    )
+        card.add_widget(content)
+        container.add_widget(card)
+
+
+class IssueDetailScreen(MDScreen):
+    def show_issue(self, issue):
+        container = self.ids.detail_container
+        container.clear_widgets()
+
+        # 제목
+        container.add_widget(
+            MDLabel(
+                text=issue.get("title", ""),
+                font_name="Nanum",
+                font_size="20sp",
+                bold=True,
+                size_hint_y=None,
+            )
+        )
+
+        # 요약
+        container.add_widget(
+            MDLabel(
+                text=issue.get("summary", ""),
+                font_name="Nanum",
+                size_hint_y=None,
+            )
+        )
+
+        # 회사안
+        if issue.get("company"):
+            container.add_widget(
+                MDCard(
+                    MDLabel(text=f"[b]회사안[/b]\n{issue['company']}", markup=True),
+                    padding=dp(12),
                 )
+            )
 
-            for item in v.get("items", []):
-                content.add_widget(
-                    MDLabel(
-                        text=f"• {item}",
-                        font_name="Nanum",
-                        size_hint_y=None,
-                    )
+        # 조합안
+        if issue.get("union"):
+            container.add_widget(
+                MDCard(
+                    MDLabel(text=f"[b]조합안[/b]\n{issue['union']}", markup=True),
+                    padding=dp(12),
                 )
-
-            if v.get("note"):
-                content.add_widget(
-                    MDLabel(
-                        text=f"[color=#777777]{v['note']}[/color]",
-                        markup=True,
-                        font_name="Nanum",
-                        size_hint_y=None,
-                    )
-                )
-
-            content.bind(minimum_height=content.setter("height"))
-
-            if is_latest:
-                content.opacity = 1
-                content.height = content.minimum_height
-            else:
-                content.opacity = 0
-                content.height = 0
-
-            card.add_widget(content)
-
-            def make_toggle(cbox):
-                def _toggle(*args):
-                    if cbox.height == 0:
-                        Animation(height=cbox.minimum_height, opacity=1, d=0.15).start(
-                            cbox
-                        )
-                    else:
-                        Animation(height=0, opacity=0, d=0.15).start(cbox)
-
-                return _toggle
-
-            toggle_btn.bind(on_release=make_toggle(content))
-            container.add_widget(card)
+            )
 
 
 # =============================
@@ -519,19 +526,6 @@ class MainApp(MDApp):
         # 탭 구성 (KV에서 텅 비어있으니 여기서 생성)
         main = self.root.get_screen("main")
 
-        # 업데이트 점 표시
-        Clock.schedule_once(lambda dt: self._apply_update_dot(), 0.6)
-
-    def _apply_update_dot(self):
-        main = self.root.get_screen("main")
-        if has_new_update():
-            self.start_update_dot_animation()
-        else:
-            dot = main.ids.get("update_dot")
-            if dot:
-                dot.opacity = 1
-                Animation.cancel_all(dot)
-
     def start_update_dot_animation(self):
         main = self.root.get_screen("main")
         dot = main.ids.update_dot
@@ -542,11 +536,18 @@ class MainApp(MDApp):
         anim.start(dot)
 
     def refresh_issues(self):
-        """
-        ⟳ 아이콘 눌렀을 때: Firestore 재로딩
-        """
+        global LOCAL_ISSUES
+
+        try:
+            LOCAL_ISSUES = fetch_issues()
+            print("DEBUG fetched count:", len(LOCAL_ISSUES))
+            print("DEBUG fetched sample:", LOCAL_ISSUES[:1])
+            print("DEBUG refreshed issues:", LOCAL_ISSUES)
+        except Exception as e:
+            print("ERROR fetching issues:", e)
+
         main = self.root.get_screen("main")
-        main._last_loaded_tab = None
+        main._last_loaded_tab = None  # 🔥 캐시 무효화
         main.populate_main_list()
 
     def go_history(self):
@@ -554,7 +555,12 @@ class MainApp(MDApp):
 
     def go_main(self):
         self.root.current = "main"
-        self._apply_update_dot()
+        self.start_update_dot_animation()
+
+    def open_detail(self, issue: dict):
+        detail = self.root.get_screen("detail")
+        detail.show_issue(issue)
+        self.root.current = "detail"
 
 
 if __name__ == "__main__":

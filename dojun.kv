@@ -23,6 +23,16 @@ ScreenManager:
                 title: ""
                 left_action_items: [["history", lambda x: app.go_history()]]
 
+                # 🔴 업데이트 점 (항상 존재)
+                MDIcon:
+                    id: update_dot
+                    icon: "circle"
+                    theme_text_color: "Custom"
+                    text_color: 1, 0.2, 0.2, 1
+                    opacity: 0
+                    pos_hint: {"right": 0.97, "top": 0.9}
+                    font_size: "12sp"
+
             MDLabel:
                 text: "이번주 주요 쟁점 사항"
                 font_name: "Nanum"
@@ -33,6 +43,7 @@ ScreenManager:
                 size_hint_y: None
                 height: dp(40)
                 color: 1, 1, 1, 1
+
 
         # ===== 탭 (고정 선언) =====
         MDTabs:
@@ -52,9 +63,14 @@ ScreenManager:
 
         # ===== 리스트 =====
         ScrollView:
-            MDList:
+            MDBoxLayout:
                 id: issue_list
-                adaptive_height: True
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(12)
+                spacing: dp(12)
+
 
 
 <UpdateHistoryScreen>:
@@ -84,3 +100,21 @@ ScreenManager:
                 padding: dp(16)
                 spacing: dp(16)
                 height: self.minimum_height
+
+
+<IssueDetailScreen>:
+    MDBoxLayout:
+        orientation: "vertical"
+
+        MDTopAppBar:
+            title: "쟁점 상세"
+            left_action_items: [["arrow-left", lambda x: app.go_main()]]
+
+        ScrollView:
+            MDBoxLayout:
+                id: detail_container
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(16)
+                spacing: dp(16)

@@ -8,18 +8,13 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 
-def load_issues_from_firestore():
-    docs = db.collection("issues").order_by("order").stream()
+def fetch_issues():
+    docs = db.collection("issues").stream()
+    return [doc.to_dict() for doc in docs]
 
-    results = []
-    for doc in docs:
-        d = doc.to_dict()
-        results.append(
-            (
-                d.get("title", ""),
-                d.get("summary", ""),
-                d.get("company", ""),
-                d.get("union_opt", ""),
-            )
-        )
-    return results
+
+def fetch_remote_version():
+    doc = db.collection("meta").document("version").get()
+    if doc.exists:
+        return doc.to_dict().get("version", 0)
+    return 0
