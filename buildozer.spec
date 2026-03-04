@@ -13,7 +13,7 @@ package.domain = union
 source.dir = .
 
 # (list) Source files to include (let empty to include all the files)
-source.include_exts = py,kv,ttf,json,db
+source.include_exts = py,kv,ttf,json,db,png,jpg,jpeg,atlas
 
 # (list) List of inclusions using pattern matching
 #source.include_patterns = assets/*,images/*.png
@@ -124,7 +124,10 @@ android.ndk_api = 21
 #android.ndk_path =
 
 # (str) Android SDK directory (if empty, it will be automatically downloaded.)
-#android.sdk_path =
+
+android.sdk_path = /opt/android-sdk
+android.ndk_path = /opt/android-sdk/ndk/25.2.9519653
+android.skip_update = True
 
 # (str) ANT directory (if empty, it will be automatically downloaded.)
 #android.ant_path =
@@ -328,7 +331,6 @@ android.no-byte-compile-python = True
 # (str) python-for-android specific commit to use, defaults to HEAD, must be within p4a.branch
 #p4a.commit = HEAD
 
-p4a.branch = master
 
 # (str) python-for-android git clone directory (if empty, it will be automatically cloned from github)
 #p4a.source_dir =
