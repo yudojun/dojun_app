@@ -24,13 +24,17 @@ from kivymd.toast import toast
 from kivymd.uix.label import MDLabel
 from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.button import MDRaisedButton
+from kivymd.uix.progressbar import MDProgressBar
 from kivy.clock import Clock
-from api_client import fetch_public_issues
-from firestore_client import fetch_remote_version
-from firestore_client import fetch_vote_summary
+from mobile.api_client import fetch_public_issues
+from mobile.firestore_client import fetch_remote_version
+from mobile.firestore_client import fetch_vote_summary
+from dotenv import load_dotenv
 
-API_KEY = "AIzaSyDPUVFGs43GqTEpFE2wigA3dNIsrBcn3M4"
-PROJECT_ID = "unionapp-27bbd"
+load_dotenv("firebase/.env")
+
+API_KEY = os.getenv("API_KEY")
+PROJECT_ID = os.getenv("PROJECT_ID")
 
 FIRESTORE_PROJECT_ID = "unionapp-27bbd"
 ISSUES_COLLECTION = "issues"
@@ -262,9 +266,7 @@ class ExpandableIssueCard(MDCard):
         if issue_id:
 
             def _apply(summary):
-                self.badge.text = (
-                    f"찬{summary['yes']} 반{summary['no']} 보{summary['hold']}"
-                )
+                self.set_badge_summary(summary)
 
             app.request_vote_summary(issue_id, _apply)
         else:
@@ -427,6 +429,15 @@ class ExpandableIssueCard(MDCard):
         }
         MDApp.get_running_app().open_detail(issue)
 
+    def set_badge_summary(self, summary: dict):
+        """배지 텍스트만 즉시 갱신"""
+        try:
+            self.badge.text = (
+                f"찬{summary['yes']} 반{summary['no']} 보{summary['hold']}"
+            )
+        except Exception as e:
+            print("BADGE SET ERROR:", e)
+
 
 # =============================
 # Screens
@@ -435,6 +446,7 @@ class MainScreen(MDScreen):
     current_tab = "전체"
     opened_card = None
     _last_loaded_tab = None
+    card_map = None
 
     def on_tab_switch(self, *args):
         self.current_tab = args[-1]
@@ -469,6 +481,8 @@ class MainScreen(MDScreen):
         if issue_list:
             issue_list.clear_widgets()
 
+        self.card_map = {}
+
         self.opened_card = None
 
         seen = set()
@@ -487,6 +501,9 @@ class MainScreen(MDScreen):
                 mode=self.current_tab,
             )
             self.ids.issue_list.add_widget(card)
+
+            if issue_id:
+                self.card_map[issue_id] = card
 
         self._last_loaded_tab = self.current_tab
 
@@ -580,6 +597,99 @@ class UpdateHistoryScreen(MDScreen):
 
         card.add_widget(content)
         container.add_widget(card)
+
+
+class VoteGraphBox(MDBoxLayout):
+    """
+    찬성/반대/보류 막대 그래프 UI
+    summary = {"yes":int, "no":int, "hold":int, "total":int}
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "vertical"
+        self.spacing = dp(6)
+        self.size_hint_y = None
+        self.bind(minimum_height=self.setter("height"))
+
+        # 제목
+        self.title_lbl = MDLabel(
+            text="[b]투표 그래프[/b]",
+            markup=True,
+            font_name="Nanum",
+            size_hint_y=None,
+            height=dp(24),
+        )
+        self.add_widget(self.title_lbl)
+
+        # 3줄(찬/반/보)
+        self.row_yes = self._make_row("찬성")
+        self.row_no = self._make_row("반대")
+        self.row_hold = self._make_row("보류")
+
+        self.add_widget(self.row_yes["box"])
+        self.add_widget(self.row_no["box"])
+        self.add_widget(self.row_hold["box"])
+
+        # 초기값
+        self.set_summary({"yes": 0, "no": 0, "hold": 0, "total": 0})
+
+    def _make_row(self, label_text: str):
+        box = MDBoxLayout(
+            orientation="horizontal",
+            spacing=dp(8),
+            size_hint_y=None,
+            height=dp(24),
+        )
+
+        lbl = MDLabel(
+            text=label_text,
+            font_name="Nanum",
+            size_hint_x=None,
+            width=dp(44),
+            halign="left",
+            valign="middle",
+        )
+
+        bar = MDProgressBar(
+            value=0,
+            max=100,
+        )
+
+        val = MDLabel(
+            text="0 (0%)",
+            font_name="Nanum",
+            size_hint_x=None,
+            width=dp(90),
+            halign="right",
+            valign="middle",
+            theme_text_color="Secondary",
+        )
+
+        box.add_widget(lbl)
+        box.add_widget(bar)
+        box.add_widget(val)
+
+        return {"box": box, "lbl": lbl, "bar": bar, "val": val}
+
+    def set_summary(self, summary: dict):
+        yes = int(summary.get("yes", 0) or 0)
+        no = int(summary.get("no", 0) or 0)
+        hold = int(summary.get("hold", 0) or 0)
+        total = int(summary.get("total", 0) or 0)
+
+        def pct(n):
+            if total <= 0:
+                return 0
+            return int(round((n / total) * 100))
+
+        self._apply_row(self.row_yes, yes, pct(yes))
+        self._apply_row(self.row_no, no, pct(no))
+        self._apply_row(self.row_hold, hold, pct(hold))
+
+    def _apply_row(self, row, count: int, percent: int):
+        row["bar"].value = percent
+        row["val"].text = f"{count} ({percent}%)"
 
 
 class IssueDetailScreen(MDScreen):
@@ -688,6 +798,10 @@ class IssueDetailScreen(MDScreen):
         )
         container.add_widget(self.vote_summary_label)
 
+        # ✅ 투표 그래프 UI 추가
+        self.vote_graph = VoteGraphBox()
+        container.add_widget(self.vote_graph)
+
         # ✅ 7) 화면 뜬 뒤(0.1초) 내 선택/색 적용
         def _after(dt):
             app = MDApp.get_running_app()
@@ -762,7 +876,8 @@ class MainApp(MDApp):
         main.populate_main_list()
 
     def build(self):
-        return Builder.load_file("dojun.kv")
+        kv_path = os.path.join(os.path.dirname(__file__), "dojun.kv")
+        return Builder.load_file(kv_path)
 
     def on_start(self):
         # ✅ 앱 시작 시 1번만 로그인
@@ -964,10 +1079,15 @@ class MainApp(MDApp):
 
                 # 0) stats 증감 (서버값 갱신)
                 self.apply_vote_stats_delta(issue_id, prev_choice, choice)
-                print("DEBUG stats after delta:", self.fetch_vote_stats(issue_id))
 
-                # ✅ 2) 목록 새로고침(배지 숫자 갱신)
-                Clock.schedule_once(lambda dt: self.refresh_list_only(), 0.1)
+                # ✅ (중요) 최신 stats를 바로 읽어서 캐시에도 저장해두면 더 즉시 반영됨
+                latest = self.fetch_vote_stats(issue_id)
+                if not hasattr(self, "vote_cache"):
+                    self.vote_cache = {}
+                self.vote_cache[issue_id] = latest
+
+                # ✅ 2) 목록 전체 리빌드 대신, 해당 카드 배지 숫자만 즉시 갱신
+                Clock.schedule_once(lambda dt: self.update_badge_only(issue_id), 0)
 
                 # ✅ 3) 상세 화면 "내 선택" 갱신
                 Clock.schedule_once(lambda dt: self.update_my_vote_label(issue), 0.1)
@@ -1056,6 +1176,13 @@ class MainApp(MDApp):
                     f"찬성: {summary['yes']}    반대: {summary['no']}    보류: {summary['hold']}\n"
                     f"총 참여: {summary['total']}"
                 )
+
+            # ✅ 그래프도 같이 갱신
+            if hasattr(detail, "vote_graph") and detail.vote_graph:
+                detail.vote_graph.set_summary(summary)
+            else:
+                print("DEBUG: vote_graph not found on detail")
+
         except Exception as e:
             print("ERROR update_vote_summary_ui:", e)
 
@@ -1157,9 +1284,6 @@ class MainApp(MDApp):
             print("ERROR update_my_vote_label:", e)
 
     def update_vote_summary(self, issue: dict):
-        """
-        detail 화면에서 투표 현황 라벨 갱신
-        """
         try:
             detail = self.root.get_screen("detail")
             if not hasattr(detail, "vote_summary_label"):
@@ -1169,10 +1293,12 @@ class MainApp(MDApp):
             if not issue_id:
                 return
 
-            # 🔥 여기서 id_token이 필요함 (너가 지금 방식 2가지 중 하나 선택)
-            # A안) 매번 익명로그인해서 token 얻기 (가장 간단/안전)
-            id_token = getattr(self, "user_id_token", None)
+            # ✅ 토큰: 둘 중 뭐가 됐든 잡히게(안전장치)
+            id_token = getattr(self, "user_id_token", None) or getattr(
+                self, "user_id_token", None
+            )
             if not id_token:
+                print("DEBUG no id_token")
                 return
 
             summary = self.fetch_vote_stats(issue_id)
@@ -1182,6 +1308,14 @@ class MainApp(MDApp):
                 f"찬성: {summary['yes']}  반대: {summary['no']}  보류: {summary['hold']}\n"
                 f"총 참여: {summary['total']}"
             )
+
+            print("DEBUG graph summary:", summary)
+
+            if hasattr(detail, "vote_graph") and detail.vote_graph:
+                detail.vote_graph.set_summary(summary)
+            else:
+                print("DEBUG vote_graph missing on detail")
+
         except Exception as e:
             print("VOTE SUMMARY ERROR:", e)
 
@@ -1309,6 +1443,28 @@ class MainApp(MDApp):
         rc = requests.post(commit_url, headers=headers, json=body)
         if rc.status_code != 200:
             print("VOTE_STATS COMMIT ERROR:", rc.status_code, rc.text)
+
+    def update_badge_only(self, issue_id: str):
+        """목록 전체 리빌드 없이, 해당 카드 배지만 즉시 갱신"""
+        try:
+            main = self.root.get_screen("main")
+            if not getattr(main, "card_map", None):
+                return
+
+            card = main.card_map.get(issue_id)
+            if not card:
+                return
+
+            # 캐시 무효화 후 최신 stats 읽어서 배지에 적용
+            self.invalidate_vote_cache(issue_id)
+
+            def _apply(summary):
+                card.set_badge_summary(summary)
+
+            self.request_vote_summary(issue_id, _apply)
+
+        except Exception as e:
+            print("update_badge_only ERROR:", e)
 
 
 if __name__ == "__main__":

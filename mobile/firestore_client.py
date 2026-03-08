@@ -2,22 +2,29 @@ import os
 from kivy.utils import platform
 import requests
 
+# 프로젝트 루트: dojun_app/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# firebase_key.json 실제 위치
+KEY_PATH = os.path.join(BASE_DIR, "firebase", "firebase_key.json")
+
+
 # 폰(안드로이드)에서는 firebase-admin을 쓰지 않게 막는다.
 # (일단 앱이 켜지는 게 우선)
 if platform == "android":
 
     def fetch_issues():
-        return []  # 또는 LOCAL_ISSUES를 그대로 쓰게 main.py에서 처리
+        return []  # 또는 main.py에서 LOCAL_ISSUES 처리
 
     def fetch_remote_version():
         return 0
 
+    def fetch_vote_summary(id_token: str, issue_id: str) -> dict:
+        return {"yes": 0, "no": 0, "hold": 0, "total": 0}
+
 else:
     import firebase_admin
     from firebase_admin import credentials, firestore
-
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    KEY_PATH = os.path.join(BASE_DIR, "firebase_key.json")
 
     if not firebase_admin._apps:
         cred = credentials.Certificate(KEY_PATH)
@@ -49,6 +56,7 @@ else:
 
         headers = {"Authorization": f"Bearer {id_token}"}
         r = requests.get(url, headers=headers)
+
         # ballots가 0개면 404로 올 수 있어서 안전 처리
         if r.status_code == 404:
             return {"yes": 0, "no": 0, "hold": 0, "total": 0}
@@ -61,6 +69,7 @@ else:
         for doc in docs:
             fields = doc.get("fields", {})
             choice = fields.get("choice", {}).get("stringValue", "")
+
             if choice == "yes":
                 yes += 1
             elif choice == "no":

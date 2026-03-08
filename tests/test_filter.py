@@ -1,4 +1,4 @@
-from main import get_filtered_issues
+from mobile.main import get_filtered_issues
 
 
 def test_get_all():

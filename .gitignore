@@ -5,8 +5,13 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+dist/
+build/
 
+############################
 # Virtual Environment
+############################
 venv/
 .env
 .env.*
@@ -20,16 +25,29 @@ bin/
 *.aab
 
 # Android build leftovers
-*.log
+.gradle/
+local.properties
 *.keystore
+
+############################
+# Node / React
+############################
+node_modules/
+dist/
+build/
 
 ############################
 # Docker
 ############################
-# Docker는 Dockerfile만 Git에 올리고
-# 컨테이너 내부 산출물은 무시
 docker-data/
 *.tar
+
+############################
+# Firebase (Security)
+############################
+firebase_key.json
+firebase/*.json
+*.serviceAccount.json
 
 ############################
 # Editor / OS
@@ -43,13 +61,13 @@ docker-data/
 Thumbs.db
 
 ############################
+# Logs
+############################
+*.log
+logs/
+
+############################
 # Temp / Cache
 ############################
 .cache/
 .tmp/
-
-############################
-# firebase_key.json
-############################
-firebase_key.json
-
