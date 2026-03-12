@@ -13,38 +13,36 @@ ScreenManager:
 <MainScreen>:
     MDBoxLayout:
         orientation: "vertical"
+        md_bg_color: 0.96, 0.97, 0.98, 1
 
-        # ===== 상단 헤더 (수정본: AppBar 위에 점 겹치기) =====
+        # ===== 상단 헤더 =====
         MDBoxLayout:
             orientation: "vertical"
             size_hint_y: None
-            height: dp(104)
+            height: dp(108)
             md_bg_color: 0.13, 0.58, 0.92, 1
 
-            # 상단바 + 업데이트 점(겹침)
-            MDBoxLayout:
+            FloatLayout:
                 size_hint_y: None
                 height: dp(56)
-                padding: 0
-                spacing: 0
 
-                FloatLayout:
-                    MDTopAppBar:
-                        id: topbar
-                        title: ""
-                        left_action_items: [["history", lambda x: app.go_history()]]
-                        right_action_items: [["refresh", lambda x: app.refresh_issues()]]
+                MDTopAppBar:
+                    id: topbar
+                    title: ""
+                    elevation: 0
+                    md_bg_color: 0.13, 0.58, 0.92, 1
+                    left_action_items: [["history", lambda x: app.go_history()]]
+                    right_action_items: [["refresh", lambda x: app.refresh_issues()]]
 
-                    # 🔴 업데이트 점 (항상 존재 / AppBar 위에 겹쳐놓기)
-                    MDIcon:
-                        id: update_dot
-                        icon: "circle"
-                        theme_text_color: "Custom"
-                        text_color: 1, 0.2, 0.2, 1
-                        opacity: 0
-                        pos_hint: {"right": 0.98, "top": 0.80}
-                        font_size: "12sp"
-                        disabled: True
+                MDIcon:
+                    id: update_dot
+                    icon: "circle"
+                    theme_text_color: "Custom"
+                    text_color: 1, 0.2, 0.2, 1
+                    opacity: 0
+                    pos_hint: {"right": 0.98, "top": 0.80}
+                    font_size: "12sp"
+                    disabled: True
 
             MDLabel:
                 text: "이번주 주요 쟁점 사항"
@@ -54,53 +52,82 @@ ScreenManager:
                 halign: "center"
                 valign: "middle"
                 size_hint_y: None
-                height: dp(40)
+                height: dp(44)
                 theme_text_color: "Custom"
                 text_color: 1, 1, 1, 1
 
-
-        # ===== 탭 (고정 선언) =====
-        MDTabs:
-            id: tabs
+        # ===== 커스텀 탭 바 =====
+        MDBoxLayout:
             size_hint_y: None
-            height: dp(48)
-            on_tab_switch: root.on_tab_switch(*args)
+            height: dp(56)
+            padding: dp(12), dp(8)
+            spacing: dp(20)
+            md_bg_color: 0.96, 0.97, 0.98, 1
 
-            Tab:
-                title: "전체"
+            MDLabel:
+                size_hint_x: 1
 
-            Tab:
-                title: "회사안"
+            MDFlatButton:
+                id: tab_all
+                text: "전체"
+                font_name: "Nanum"
+                theme_text_color: "Custom"
+                text_color: 1, 1, 1, 1
+                md_bg_color: 0.13, 0.58, 0.92, 1
+                on_release: root.set_tab("전체")
 
-            Tab:
-                title: "조합안"
+            MDFlatButton:
+                id: tab_company
+                text: "회사안"
+                font_name: "Nanum"
+                theme_text_color: "Custom"
+                text_color: 0.25, 0.25, 0.25, 1
+                md_bg_color: 1, 1, 1, 1
+                on_release: root.set_tab("회사안")
 
-        # ===== 리스트 (남은 공간만 차지하도록 수정) =====
-        ScrollView:
-            id: issue_scroll
-            size_hint_y: 1   # ✅ 이게 핵심!! (아래 버튼을 덮지 않음)
-            do_scroll_x: False
+            MDFlatButton:
+                id: tab_union
+                text: "조합안"
+                font_name: "Nanum"
+                theme_text_color: "Custom"
+                text_color: 0.25, 0.25, 0.25, 1
+                md_bg_color: 1, 1, 1, 1
+                on_release: root.set_tab("조합안")
 
-            MDBoxLayout:
-                id: issue_list
-                orientation: "vertical"
-                size_hint_y: None
-                height: self.minimum_height
-                padding: dp(12)
-                spacing: dp(12)
+            MDLabel:
+                size_hint_x: 1
 
-         # ===== 하단 버튼바 (추가) =====
+        # ===== 메인 리스트 영역 =====
+        MDBoxLayout:
+            orientation: "vertical"
+            padding: dp(8), dp(8), dp(8), dp(8)
+
+            ScrollView:
+                id: issue_scroll
+                size_hint_y: 1
+                do_scroll_x: False
+                bar_width: dp(3)
+
+                MDBoxLayout:
+                    id: issue_list
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(8)
+                    spacing: dp(12)
+
+        # ===== 하단 버튼바 =====
         MDBoxLayout:
             size_hint_y: None
             height: dp(56)
             padding: dp(12), 0
             spacing: dp(12)
-            md_bg_color: 0.13, 0.58, 0.92, 1
+            md_bg_color: 1, 1, 1, 1
 
             MDIconButton:
                 icon: "history"
                 theme_text_color: "Custom"
-                text_color: 1, 1, 1, 1
+                text_color: 0.13, 0.58, 0.92, 1
                 on_release: app.go_history()
 
             MDLabel:
@@ -110,16 +137,19 @@ ScreenManager:
             MDIconButton:
                 icon: "refresh"
                 theme_text_color: "Custom"
-                text_color: 1, 1, 1, 1
-                on_release: print("HIT bottom refresh") or app.refresh_issues()
+                text_color: 0.13, 0.58, 0.92, 1
+                on_release: app.refresh_issues()
 
 
 <UpdateHistoryScreen>:
     MDBoxLayout:
         orientation: "vertical"
+        md_bg_color: 0.96, 0.97, 0.98, 1
 
         MDTopAppBar:
             title: ""
+            elevation: 0
+            md_bg_color: 0.13, 0.58, 0.92, 1
             left_action_items: [["arrow-left", lambda x: app.go_main()]]
 
         MDLabel:
@@ -129,10 +159,13 @@ ScreenManager:
             bold: True
             halign: "center"
             size_hint_y: None
-            height: dp(48)
+            height: dp(52)
+            theme_text_color: "Custom"
+            text_color: 0.1, 0.1, 0.1, 1
 
         ScrollView:
             do_scroll_x: False
+            bar_width: dp(3)
 
             MDBoxLayout:
                 id: history_container
@@ -146,12 +179,18 @@ ScreenManager:
 <IssueDetailScreen>:
     MDBoxLayout:
         orientation: "vertical"
+        md_bg_color: 0.96, 0.97, 0.98, 1
 
         MDTopAppBar:
             title: "쟁점 상세"
+            elevation: 0
+            md_bg_color: 0.13, 0.58, 0.92, 1
             left_action_items: [["arrow-left", lambda x: app.go_main()]]
 
         ScrollView:
+            do_scroll_x: False
+            bar_width: dp(3)
+
             MDBoxLayout:
                 id: detail_container
                 orientation: "vertical"

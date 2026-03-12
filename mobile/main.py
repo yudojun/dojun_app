@@ -204,100 +204,114 @@ class ExpandableIssueCard(MDCard):
         self.parent_screen = parent_screen
         self.mode = mode
 
-        # ---- 카드 외형 ----
+        # ---- 카드 기본 외형 ----
         self.orientation = "vertical"
         self.padding = (dp(18), dp(16))
-        self.spacing = dp(10)
-        self.radius = [14]
+        self.spacing = dp(12)
+        self.radius = [18]
         self.elevation = 1
         self.size_hint_y = None
+        self.md_bg_color = (1, 1, 1, 1)
         self.bind(minimum_height=self.setter("height"))
 
-        # ---- 토글 상태 ----
         self._opened = False
 
         # =========================
-        # 헤더 영역
+        # 헤더 영역 (2줄 구조)
         # =========================
-        header = MDBoxLayout(
+        header_box = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(4),
+            size_hint_y=None,
+        )
+        header_box.bind(minimum_height=header_box.setter("height"))
+
+        # ---------- 1줄 (아이콘 + 제목 + 화살표) ----------
+        top_row = MDBoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=dp(44),
-            spacing=dp(10),
+            height=dp(28),
+            spacing=dp(8),
         )
 
-        # 왼쪽 아이콘
-        header.add_widget(MDIcon(icon="file-document-outline"))
+        icon = MDIcon(
+            icon="file-document-outline",
+            theme_text_color="Custom",
+            text_color=(0.13, 0.58, 0.92, 1),
+            size_hint_x=None,
+            width=dp(22),
+        )
 
-        # 제목
-        title_lbl = MDLabel(
+        self.title_lbl = MDLabel(
             text=self.title,
-            bold=True,
             font_name="Nanum",
+            bold=True,
+            font_size="15sp",
+            halign="left",
             valign="middle",
+            shorten=True,
         )
-        header.add_widget(title_lbl)
 
-        # ✅ 투표 배지(처음엔 ...)
+        self.chev = MDIconButton(
+            icon="chevron-down",
+            theme_icon_color="Custom",
+            icon_color=(0.35, 0.35, 0.35, 1),
+            size_hint_x=None,
+            width=dp(36),
+        )
+        self.chev.bind(on_release=self.toggle)
+
+        top_row.add_widget(icon)
+        top_row.add_widget(self.title_lbl)
+        top_row.add_widget(self.chev)
+
+        # ---------- 2줄 (투표 현황) ----------
         self.badge = MDLabel(
             text="…",
             font_name="Nanum",
-            font_size="12sp",
-            size_hint=(None, None),
-            size=(dp(90), dp(24)),
-            halign="right",
-            valign="middle",
+            font_size="11sp",
             theme_text_color="Secondary",
+            halign="left",
+            size_hint_y=None,
+            height=dp(20),
+            opacity=0.9,
         )
-        header.add_widget(self.badge)
 
-        # 오른쪽 화살표 버튼
-        self.chev = MDIconButton(icon="chevron-down")
-        self.chev.on_release = self.toggle
-        header.add_widget(self.chev)
+        header_box.add_widget(top_row)
+        header_box.add_widget(self.badge)
+        self.add_widget(header_box)
 
-        # 헤더를 카드에 추가
-        self.add_widget(header)
+        # 구분선
+        self.divider = MDBoxLayout(
+            size_hint_y=None,
+            height=dp(1),
+            md_bg_color=(0.88, 0.90, 0.93, 1),
+            opacity=0,
+        )
+        self.add_widget(self.divider)
 
-        # ✅ 배지 내용 비동기 로딩 (헤더 만든 뒤에!)
-        issue_id = self.issue_id  # 지역 변수로 따로 빼기 (클로저 문제 방지)
+        # ✅ 배지 로딩
+        issue_id = self.issue_id
         app = MDApp.get_running_app()
 
         if issue_id:
-
             def _apply(summary):
                 self.set_badge_summary(summary)
-
             app.request_vote_summary(issue_id, _apply)
         else:
             self.badge.text = ""
 
         # =========================
-        # 내용 영역 (처음엔 접힘)
+        # 펼침 내용 영역
         # =========================
         self.content = MDBoxLayout(
             orientation="vertical",
-            spacing=dp(10),
+            spacing=dp(12),
             size_hint_y=None,
             height=0,
             opacity=0,
         )
 
-        # 태그
-        tag_text = "전체" if self.mode == "전체" else self.mode
-        self.content.add_widget(
-            MDLabel(
-                text=f"[{tag_text}]",
-                halign="left",
-                size_hint_y=None,
-                height=dp(18),
-                font_name="Nanum",
-                font_size="12sp",
-                theme_text_color="Secondary",
-            )
-        )
-
-        # 요약
         self.content.add_widget(self._section("회의 요약", self.summary))
 
         if self.mode in ("전체", "회사안"):
@@ -309,11 +323,21 @@ class ExpandableIssueCard(MDCard):
             self.content.add_widget(
                 self._section("조합 측 입장", self.union or "(내용 없음)")
             )
-        # 상세보기 버튼 (여기서 detail로 안전하게 이동)
-        btn_row = MDBoxLayout(orientation="horizontal", size_hint_y=None, height=dp(40))
-        btn_row.add_widget(MDLabel(text=""))  # 왼쪽 빈 공간(오른쪽 정렬용)
 
-        detail_btn = MDFlatButton(text="자세히 보기")
+        btn_row = MDBoxLayout(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=dp(40),
+            padding=(0, dp(4), 0, 0),
+        )
+        btn_row.add_widget(MDLabel(text=""))
+
+        detail_btn = MDFlatButton(
+            text="자세히 보기",
+            font_name="Nanum",
+            theme_text_color="Custom",
+            text_color=(0.13, 0.58, 0.92, 1),
+        )
 
         def _go_detail(*args):
             issue = {
@@ -325,48 +349,68 @@ class ExpandableIssueCard(MDCard):
             }
             MDApp.get_running_app().open_detail(issue)
 
-        detail_btn.on_release = _go_detail
+        detail_btn.bind(on_release=_go_detail)
 
         btn_row.add_widget(detail_btn)
         self.content.add_widget(btn_row)
 
         self.add_widget(self.content)
 
-        # 헤더 높이만큼 collapsed height 잡아두기
-        self._collapsed_height = header.height + self.padding[1] * 2 + self.spacing
+        def _set_collapsed_height(dt):
+            self._collapsed_height = (
+                header_box.height + self.divider.height + self.padding[1] * 2 + self.spacing
+            )
+            self.height = self._collapsed_height
 
-        Clock.schedule_once(
-            lambda dt: setattr(self, "height", self._collapsed_height), 0
-        )
+        Clock.schedule_once(_set_collapsed_height, 0)
 
     def _section(self, title, body):
-        box = MDBoxLayout(orientation="vertical", spacing=dp(4), size_hint_y=None)
+        box = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(8),
+            size_hint_y=None,
+        )
         box.bind(minimum_height=box.setter("height"))
 
+        # 섹션 색상 설정
+        if "회사" in title:
+            color = (0.85, 0.2, 0.2, 1)  # 빨강
+        elif "조합" in title:
+            color = (0.13, 0.58, 0.92, 1)  # 파랑
+        else:
+            color = (0.35, 0.35, 0.35, 1)  # 회색
+
         title_label = MDLabel(
-            text=f"[b]{title}[/b]",
-            markup=True,
+            text=title,
             font_name="Nanum",
             font_size="13sp",
+            bold=True,
+            theme_text_color="Custom",
+            text_color=color,
             size_hint_y=None,
+            height=dp(20),
         )
-        title_label.bind(texture_size=title_label.setter("size"))
 
         body_label = MDLabel(
-            text=(body.strip() if body else "(내용 없음)"),
+            text=f"• {body.strip()}" if body else "• (내용 없음)",
             font_name="Nanum",
-            font_size="13sp",
+            font_size="15sp",
+            theme_text_color="Primary",
             size_hint_y=None,
-            text_size=(
-                self.width - dp(40),
-                None,
-            ),  # 🔥 Window.width 대신 self.width 사용
+            halign="left",
+            valign="top",
         )
-        body_label.bind(texture_size=body_label.setter("size"))
+
+        def _update_body_height(*args):
+            body_label.text_size = (self.width - dp(56), None)
+            body_label.texture_update()
+            body_label.height = body_label.texture_size[1]
+
+        self.bind(width=lambda *args: _update_body_height())
+        Clock.schedule_once(lambda dt: _update_body_height(), 0)
 
         box.add_widget(title_label)
         box.add_widget(body_label)
-
         return box
 
     def toggle(self, *args):
@@ -374,7 +418,6 @@ class ExpandableIssueCard(MDCard):
         if ps is None:
             return
 
-        # 다른 카드가 열려있으면 닫기
         if (
             not self._opened
             and getattr(ps, "opened_card", None)
@@ -385,18 +428,20 @@ class ExpandableIssueCard(MDCard):
         if not self._opened:
             self._opened = True
             self.chev.icon = "chevron-up"
+            self.divider.opacity = 1
+            self.elevation = 3
 
             target_h = self.content.minimum_height
             Animation.cancel_all(self.content)
             Animation.cancel_all(self)
 
-            # content 펼치기
             Animation(height=target_h, opacity=1, d=0.18, t="out_quad").start(
                 self.content
             )
-            # card 높이 늘리기
             Animation(
-                height=self._collapsed_height + target_h, d=0.18, t="out_quad"
+                height=self._collapsed_height + target_h,
+                d=0.18,
+                t="out_quad",
             ).start(self)
 
             ps.opened_card = self
@@ -409,6 +454,8 @@ class ExpandableIssueCard(MDCard):
 
         self._opened = False
         self.chev.icon = "chevron-down"
+        self.divider.opacity = 0
+        self.elevation = 1
 
         Animation.cancel_all(self.content)
         Animation.cancel_all(self)
@@ -430,10 +477,9 @@ class ExpandableIssueCard(MDCard):
         MDApp.get_running_app().open_detail(issue)
 
     def set_badge_summary(self, summary: dict):
-        """배지 텍스트만 즉시 갱신"""
         try:
             self.badge.text = (
-                f"찬{summary['yes']} 반{summary['no']} 보{summary['hold']}"
+                f"찬성 {summary['yes']} | 반대 {summary['no']} | 보류 {summary['hold']}"
             )
         except Exception as e:
             print("BADGE SET ERROR:", e)
@@ -448,14 +494,42 @@ class MainScreen(MDScreen):
     _last_loaded_tab = None
     card_map = None
 
-    def on_tab_switch(self, *args):
-        self.current_tab = args[-1]
-        self._last_loaded_tab = None
-        self.populate_main_list()
-
     def on_kv_post(self, base_widget):
         self._last_loaded_tab = None
+        self.update_tab_ui()
         self.populate_main_list()
+
+    def set_tab(self, tab_name):
+        if self.current_tab == tab_name:
+            return
+        self.current_tab = tab_name
+        self._last_loaded_tab = None
+        self.update_tab_ui()
+        self.populate_main_list()
+
+    def update_tab_ui(self):
+        tab_ids = {
+            "전체": "tab_all",
+            "회사안": "tab_company",
+            "조합안": "tab_union",
+        }
+
+        active_bg = (0.13, 0.58, 0.92, 1)
+        inactive_bg = (1, 1, 1, 1)
+        active_text = (1, 1, 1, 1)
+        inactive_text = (0.25, 0.25, 0.25, 1)
+
+        for tab_name, widget_id in tab_ids.items():
+            btn = self.ids.get(widget_id)
+            if not btn:
+                continue
+
+            if tab_name == self.current_tab:
+                btn.md_bg_color = active_bg
+                btn.text_color = active_text
+            else:
+                btn.md_bg_color = inactive_bg
+                btn.text_color = inactive_text
 
     def populate_main_list(self):
         if self._last_loaded_tab == self.current_tab:
@@ -463,12 +537,7 @@ class MainScreen(MDScreen):
 
         issues = get_filtered_issues(self.current_tab)
 
-        # ✅ 여기서 비어있으면: 기존 화면 유지하거나, 그때만 empty state 처리
         if not issues:
-            # 기존 화면을 유지하고 싶으면 그냥 return
-            # return
-
-            # 빈 화면을 보여주고 싶다면 그때만 clear 후 empty state
             issue_list = self.ids.get("issue_list")
             if issue_list:
                 issue_list.clear_widgets()
@@ -476,13 +545,11 @@ class MainScreen(MDScreen):
             self._last_loaded_tab = self.current_tab
             return
 
-        # ✅ 데이터가 있을 때만 지우고 다시 그림
         issue_list = self.ids.get("issue_list")
         if issue_list:
             issue_list.clear_widgets()
 
         self.card_map = {}
-
         self.opened_card = None
 
         seen = set()
@@ -492,7 +559,7 @@ class MainScreen(MDScreen):
             seen.add(title)
 
             card = ExpandableIssueCard(
-                issue_id=issue_id,  # ✅ 추가
+                issue_id=issue_id,
                 title=title,
                 summary=summary,
                 company=company,
@@ -508,6 +575,12 @@ class MainScreen(MDScreen):
         self._last_loaded_tab = self.current_tab
 
     def _add_empty_state(self):
+        issue_list = self.ids.get("issue_list")
+        if not issue_list:
+            return
+
+        issue_list.clear_widgets()
+
         card = MDCard(
             orientation="vertical",
             padding=(dp(20), dp(20)),
@@ -529,18 +602,8 @@ class MainScreen(MDScreen):
             )
         )
 
-        issue_list = self.ids.get("issue_list")
-        if issue_list:
-            issue_list.add_widget(card)
-
+        issue_list.add_widget(card)
         self._last_loaded_tab = self.current_tab
-
-        # (선택) 탭 전환 직후 레이아웃 갱신이 필요할 때만 약간 딜레이로 재빌드
-        def _reload(dt):
-            self._last_loaded_tab = None
-            self.populate_main_list()
-
-        Clock.schedule_once(_reload, 0.05)
 
 
 class UpdateHistoryScreen(MDScreen):
@@ -693,65 +756,71 @@ class VoteGraphBox(MDBoxLayout):
 
 
 class IssueDetailScreen(MDScreen):
+    def _make_text_card(self, title, body_text):
+        card = MDCard(
+            orientation="vertical",
+            padding=dp(12),
+            radius=[12],
+            elevation=1,
+            size_hint_y=None,
+        )
+        card.bind(minimum_height=card.setter("height"))
+
+        label = MDLabel(
+            text=f"[b]{title}[/b]\n{body_text}",
+            markup=True,
+            font_name="Nanum",
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+
+        def _update_height(*args):
+            label.text_size = (card.width - dp(24), None)
+            label.texture_update()
+            label.height = label.texture_size[1]
+
+        card.bind(width=lambda *args: _update_height())
+        label.bind(texture_size=lambda *args: setattr(label, "height", label.texture_size[1]))
+
+        Clock.schedule_once(lambda dt: _update_height(), 0)
+        card.add_widget(label)
+        return card
+
     def show_issue(self, issue):
         issue_id = (issue or {}).get("id")
         if not issue_id:
             print("ERROR show_issue: issue_id is None. issue =", issue)
             return
-        # ✅ 1) 컨테이너 확보
+
         container = self.ids.detail_container
         container.clear_widgets()
 
-        # ✅ 2) 제목 / 요약
-        container.add_widget(
-            MDLabel(
-                text=issue.get("title", ""),
-                font_name="Nanum",
-                font_size="20sp",
-                bold=True,
-                size_hint_y=None,
-                height=dp(34),
-            )
+        title_label = MDLabel(
+            text=issue.get("title", ""),
+            font_name="Nanum",
+            font_size="20sp",
+            bold=True,
+            size_hint_y=None,
+            height=dp(34),
         )
-        container.add_widget(
-            MDLabel(
-                text=issue.get("summary", ""),
-                font_name="Nanum",
-                theme_text_color="Secondary",
-                size_hint_y=None,
-                height=dp(24),
-            )
-        )
+        container.add_widget(title_label)
 
-        # ✅ 3) 회사안 카드
+        summary_label = MDLabel(
+            text=issue.get("summary", ""),
+            font_name="Nanum",
+            theme_text_color="Secondary",
+            size_hint_y=None,
+            height=dp(24),
+        )
+        container.add_widget(summary_label)
+
         company_txt = issue.get("company", "") or "회사 측 공식 입장 정리 전입니다."
-        container.add_widget(
-            MDCard(
-                MDLabel(
-                    text=f"[b]회사안[/b]\n{company_txt}", markup=True, font_name="Nanum"
-                ),
-                padding=dp(12),
-                radius=[12],
-                elevation=1,
-                size_hint_y=None,
-            )
-        )
+        container.add_widget(self._make_text_card("회사안", company_txt))
 
-        # ✅ 4) 조합안 카드
         union_txt = issue.get("union", "") or "조합 요구안 정리 중입니다."
-        container.add_widget(
-            MDCard(
-                MDLabel(
-                    text=f"[b]조합안[/b]\n{union_txt}", markup=True, font_name="Nanum"
-                ),
-                padding=dp(12),
-                radius=[12],
-                elevation=1,
-                size_hint_y=None,
-            )
-        )
+        container.add_widget(self._make_text_card("조합안", union_txt))
 
-        # ✅ 5) 버튼 줄(찬/반/보) — 무조건 추가
         btn_row = MDBoxLayout(
             orientation="horizontal",
             size_hint_y=None,
@@ -764,23 +833,21 @@ class IssueDetailScreen(MDScreen):
         self.btn_no = MDRaisedButton(text="반대")
         self.btn_hold = MDRaisedButton(text="보류")
 
-        self.btn_yes.on_release = lambda: MDApp.get_running_app().submit_vote(
-            issue, "yes"
+        self.btn_yes.bind(
+            on_release=lambda *args: MDApp.get_running_app().submit_vote(issue, "yes")
         )
-        self.btn_no.on_release = lambda: MDApp.get_running_app().submit_vote(
-            issue, "no"
+        self.btn_no.bind(
+            on_release=lambda *args: MDApp.get_running_app().submit_vote(issue, "no")
         )
-        self.btn_hold.on_release = lambda: MDApp.get_running_app().submit_vote(
-            issue, "hold"
+        self.btn_hold.bind(
+            on_release=lambda *args: MDApp.get_running_app().submit_vote(issue, "hold")
         )
 
         btn_row.add_widget(self.btn_yes)
         btn_row.add_widget(self.btn_no)
         btn_row.add_widget(self.btn_hold)
-
         container.add_widget(btn_row)
 
-        # ✅ 6) 내 선택 표시 라벨
         self.my_vote_label = MDLabel(
             text="내 선택: -",
             font_name="Nanum",
@@ -789,7 +856,6 @@ class IssueDetailScreen(MDScreen):
         )
         container.add_widget(self.my_vote_label)
 
-        # ✅ 투표 현황 라벨 (추가)
         self.vote_summary_label = MDLabel(
             text="투표 현황\n찬성: 0  반대: 0  보류: 0\n총 참여: 0",
             font_name="Nanum",
@@ -798,26 +864,26 @@ class IssueDetailScreen(MDScreen):
         )
         container.add_widget(self.vote_summary_label)
 
-        # ✅ 투표 그래프 UI 추가
         self.vote_graph = VoteGraphBox()
         container.add_widget(self.vote_graph)
 
-        # ✅ 7) 화면 뜬 뒤(0.1초) 내 선택/색 적용
         def _after(dt):
             app = MDApp.get_running_app()
             choice = None
             try:
-                # 네가 이미 만든 함수 이름에 맞춰 쓰면 됨
                 choice = app.fetch_my_vote(issue.get("id"))
             except Exception as e:
                 print("FETCH_MY_VOTE ERROR:", e)
 
             if choice:
-                self.my_vote_label.text = f"내 선택: { {'yes':'찬성','no':'반대','hold':'보류'}.get(choice, choice) }"
+                self.my_vote_label.text = (
+                    f"내 선택: { {'yes':'찬성','no':'반대','hold':'보류'}.get(choice, choice) }"
+                )
                 try:
                     self.highlight_my_choice(choice)
                 except Exception as e:
                     print("HIGHLIGHT ERROR:", e)
+
             MDApp.get_running_app().update_vote_summary(issue)
 
         Clock.schedule_once(_after, 0.1)
@@ -1008,7 +1074,9 @@ class MainApp(MDApp):
 
     def submit_vote(self, issue: dict, choice: str):
         issue_id = issue.get("id")
+        issue_type = issue.get("type", "vote")
         title = issue.get("title", "")
+
         if not issue_id:
             print("ERROR: issue_id is None. issue =", issue)
             MDSnackbar(
@@ -1019,39 +1087,42 @@ class MainApp(MDApp):
                 duration=1.2,
             ).open()
             return
-        prev_choice = None
-        try:
-            prev_choice = self.fetch_my_vote(issue_id)  # ✅ 투표 전 내 기존 선택
-        except Exception as e:
-            print("WARN prev_choice fetch failed:", e)
 
         print("VOTE:", issue_id, title, "->", choice)
 
         try:
-            # ✅ 앱 시작 때 저장해둔 토큰/uid 재사용
             id_token = getattr(self, "user_id_token", None)
             user_uid = getattr(self, "user_uid", None)
 
-            # 혹시 없으면(처음 로그인 실패 등) 여기서 1번만 재시도
             if not id_token or not user_uid:
                 self.user_id_token, self.user_uid = firebase_anonymous_login()
                 id_token = self.user_id_token
                 user_uid = self.user_uid
 
-            # ✅ Firestore REST 경로 (프로젝트ID는 반드시 실제 값 사용)
             url = (
                 "https://firestore.googleapis.com/v1/"
                 f"projects/{PROJECT_ID}/databases/(default)/documents/"
                 f"votes/{issue_id}/ballots/{user_uid}"
             )
 
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+
             data = {
                 "fields": {
-                    "choice": {"stringValue": choice},
-                    "issue_title": {"stringValue": title},
-                    "created_at": {
-                        "timestampValue": time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    "uid": {"stringValue": user_uid},
+                    "issueId": {"stringValue": issue_id},
+                    "type": {"stringValue": issue_type},
+                    "selectedOptions": {
+                        "arrayValue": {
+                            "values": [
+                                {"stringValue": choice}
+                            ]
+                        }
                     },
+                    "submittedAt": {"timestampValue": now_iso},
+                    "updatedAt": {"timestampValue": now_iso},
+                    "departmentId": {"nullValue": None},
+                    "memberId": {"nullValue": None},
                 }
             }
 
@@ -1072,30 +1143,23 @@ class MainApp(MDApp):
                     duration=1.0,
                 ).open()
 
-                issue_id = issue.get("id")
-
-                # ✅ 1) 배지/집계 캐시 무효화 (한 번만)
+                # 1) 캐시 무효화
                 self.invalidate_vote_cache(issue_id)
 
-                # 0) stats 증감 (서버값 갱신)
-                self.apply_vote_stats_delta(issue_id, prev_choice, choice)
+                # 2) 서버가 계산한 최신 결과 다시 읽기
+                try:
+                    latest = self.fetch_vote_stats(issue_id)
+                    if not hasattr(self, "vote_cache"):
+                        self.vote_cache = {}
+                    self.vote_cache[issue_id] = latest
+                except Exception as e:
+                    print("FETCH LATEST VOTE_STATS ERROR:", e)
 
-                # ✅ (중요) 최신 stats를 바로 읽어서 캐시에도 저장해두면 더 즉시 반영됨
-                latest = self.fetch_vote_stats(issue_id)
-                if not hasattr(self, "vote_cache"):
-                    self.vote_cache = {}
-                self.vote_cache[issue_id] = latest
-
-                # ✅ 2) 목록 전체 리빌드 대신, 해당 카드 배지 숫자만 즉시 갱신
+                # 3) 화면 갱신
                 Clock.schedule_once(lambda dt: self.update_badge_only(issue_id), 0)
-
-                # ✅ 3) 상세 화면 "내 선택" 갱신
                 Clock.schedule_once(lambda dt: self.update_my_vote_label(issue), 0.1)
-
-                # ✅ 4) 상세 화면 "투표 현황(찬/반/보/총참여)" 갱신  ← 여기!!
                 Clock.schedule_once(lambda dt: self.update_vote_summary(issue), 0.1)
 
-                # ✅ 5) 버튼 강조(즉시 해도 되고, 0.0~0.1 딜레이도 OK)
                 try:
                     detail = self.root.get_screen("detail")
                     detail.highlight_my_choice(choice)
@@ -1105,7 +1169,9 @@ class MainApp(MDApp):
             else:
                 MDSnackbar(
                     MDLabel(
-                        text=f"저장 실패: {r.status_code}", max_lines=1, shorten=True
+                        text=f"저장 실패: {r.status_code}",
+                        max_lines=1,
+                        shorten=True,
                     ),
                     y="10dp",
                     pos_hint={"center_x": 0.5},
