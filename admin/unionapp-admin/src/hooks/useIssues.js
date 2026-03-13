@@ -1,31 +1,67 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  archiveIssue as archiveIssueService,
   changeIssueStatus,
   createIssue,
   hardDeleteIssue as hardDeleteIssueService,
   reorderIssues,
   restoreIssue as restoreIssueService,
-  softDeleteIssue as softDeleteIssueService,
   subscribeIssues,
   updateIssue,
 } from "../services/issueService";
 
 export const STATUS_OPTIONS = [
   { value: "draft", label: "작성중" },
+  { value: "review", label: "검토중" },
   { value: "open", label: "진행중" },
   { value: "closed", label: "종료" },
   { value: "archived", label: "보관" },
 ];
 
+export const TYPE_OPTIONS = [
+  { value: "notice", label: "공지" },
+  { value: "vote", label: "투표" },
+  { value: "survey", label: "설문" },
+];
+
+export const RESULT_VISIBILITY_OPTIONS = [
+  { value: "public", label: "항상 공개" },
+  { value: "after_close", label: "종료 후 공개" },
+  { value: "admin_only", label: "관리자만" },
+];
+
+function parseOptions(text) {
+  return String(text || "")
+    .split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function stringifyOptions(options) {
+  return Array.isArray(options) ? options.join("\n") : "";
+}
+
 function createEmptyForm(tab = "public", order = 1) {
   return {
+    type: "notice",
     title: "",
     summary: "",
+    content: "",
+    category: "general",
+    scope: tab === "public" ? "전체" : "비공개",
+    status: "draft",
+    startAt: "",
+    endAt: "",
+    resultVisibility: "after_close",
+    isPinned: false,
+    imageUrl: "",
     company: "",
     union: "",
-    scope: tab === "public" ? "전체" : "비공개",
+    optionsText: "",
+    multiple: false,
+    maxSelections: 1,
     order,
-    status: "draft",
+    active: true,
   };
 }
 
@@ -34,12 +70,18 @@ export function formatStatus(status) {
   return found ? found.label : status || "-";
 }
 
+export function formatType(type) {
+  const found = TYPE_OPTIONS.find((x) => x.value === type);
+  return found ? found.label : type || "-";
+}
+
 export function statusBadgeStyle(status) {
   const map = {
     draft: { bg: "#f3f4f6", color: "#374151" },
+    review: { bg: "#ede9fe", color: "#5b21b6" },
     open: { bg: "#e0f2fe", color: "#075985" },
     closed: { bg: "#fef3c7", color: "#92400e" },
-    archived: { bg: "#ede9fe", color: "#5b21b6" },
+    archived: { bg: "#e5e7eb", color: "#4b5563" },
   };
 
   const picked = map[status] || map.draft;
@@ -55,7 +97,27 @@ export function statusBadgeStyle(status) {
   };
 }
 
-export default function useIssues({ enabled }) {
+export function typeBadgeStyle(type) {
+  const map = {
+    notice: { bg: "#dbeafe", color: "#1d4ed8" },
+    vote: { bg: "#dcfce7", color: "#166534" },
+    survey: { bg: "#fef3c7", color: "#92400e" },
+  };
+
+  const picked = map[type] || map.notice;
+
+  return {
+    display: "inline-block",
+    padding: "4px 10px",
+    borderRadius: 999,
+    background: picked.bg,
+    color: picked.color,
+    fontWeight: 800,
+    fontSize: 12,
+  };
+}
+
+export default function useIssues({ enabled, actorUid }) {
   const [tab, setTab] = useState("public");
   const [issues, setIssues] = useState([]);
   const [selectedIssueId, setSelectedIssueId] = useState(null);
@@ -74,28 +136,29 @@ export default function useIssues({ enabled }) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const liveIssues = useMemo(() => {
-    return issues.filter((it) => it.deleted !== true);
+  const activeIssues = useMemo(() => {
+    return issues.filter((it) => it.active !== false && it.status !== "archived");
+  }, [issues]);
+
+  const archivedIssues = useMemo(() => {
+    return issues.filter((it) => it.active === false || it.status === "archived");
   }, [issues]);
 
   const selectedIssue = useMemo(() => {
-    return liveIssues.find((x) => x.id === selectedIssueId) || null;
-  }, [liveIssues, selectedIssueId]);
+    return activeIssues.find((x) => x.id === selectedIssueId) || null;
+  }, [activeIssues, selectedIssueId]);
 
   const nextOrder = useMemo(() => {
-    const numbers = liveIssues
+    const numbers = activeIssues
       .map((it) => Number(it.order))
       .filter((n) => Number.isFinite(n) && n > 0 && n < 1000000);
 
     if (numbers.length === 0) return 1;
     return Math.max(...numbers) + 1;
-  }, [liveIssues]);
+  }, [activeIssues]);
 
   const visibleIssues = useMemo(() => {
-    const base = showTrash
-      ? issues.filter((it) => it.deleted === true)
-      : issues.filter((it) => it.deleted !== true);
-
+    const base = showTrash ? archivedIssues : activeIssues;
     const q = searchText.trim().toLowerCase();
 
     return base.filter((it) => {
@@ -103,18 +166,57 @@ export default function useIssues({ enabled }) {
         !q ||
         String(it.title || "").toLowerCase().includes(q) ||
         String(it.summary || "").toLowerCase().includes(q) ||
-        String(it.company || "").toLowerCase().includes(q) ||
-        String(it.union || "").toLowerCase().includes(q);
+        String(it.content || "").toLowerCase().includes(q);
 
       const matchesStatus =
         statusFilter === "all" ? true : (it.status || "draft") === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
-  }, [issues, showTrash, searchText, statusFilter]);
+  }, [activeIssues, archivedIssues, showTrash, searchText, statusFilter]);
 
   function resetForm(targetTab = tab, order = nextOrder) {
     setForm(createEmptyForm(targetTab, order));
+  }
+
+  function normalizePayloadFromForm() {
+    const type = form.type || "notice";
+    const parsedOptions = parseOptions(form.optionsText);
+
+    return {
+      type,
+      title: form.title.trim(),
+      summary: form.summary.trim(),
+      content: type === "notice" ? form.content.trim() : "",
+      category: form.category || "general",
+      scope: form.scope || (tab === "public" ? "전체" : "비공개"),
+      status: form.status || "draft",
+      startAt: form.startAt || null,
+      endAt: form.endAt || null,
+      resultVisibility:
+        type === "notice" ? "public" : form.resultVisibility || "after_close",
+      isPinned: Boolean(form.isPinned),
+      imageUrl: type === "notice" ? form.imageUrl.trim() : "",
+      company: type === "vote" ? form.company.trim() : "",
+      union: type === "vote" ? form.union.trim() : "",
+      options:
+        type === "notice"
+          ? []
+          : parsedOptions.length > 0
+            ? parsedOptions
+            : type === "vote"
+              ? ["찬성", "반대", "보류"]
+              : [],
+      multiple: type === "survey" ? Boolean(form.multiple) : false,
+      maxSelections:
+        type === "survey"
+          ? form.multiple
+            ? Number(form.maxSelections || 1)
+            : 1
+          : 1,
+      order: Number(form.order) || 1,
+      active: form.status === "archived" ? false : true,
+    };
   }
 
   useEffect(() => {
@@ -125,22 +227,19 @@ export default function useIssues({ enabled }) {
       (rows) => {
         setIssues(rows);
 
-        const liveRows = rows.filter((x) => x.deleted !== true);
-
+        const liveRows = rows.filter((x) => x.active !== false && x.status !== "archived");
         if (liveRows.length === 0) {
           setSelectedIssueId(null);
           return;
         }
 
         const stillExists = liveRows.some((x) => x.id === selectedIssueId);
-
         if (!selectedIssueId || !stillExists) {
           setSelectedIssueId(liveRows[0].id);
         }
       },
       (err) => {
         console.log("ISSUES READ ERROR:", err.code, err.message);
-        alert(`쟁점 읽기 실패: ${err.code}`);
       }
     );
 
@@ -188,13 +287,25 @@ export default function useIssues({ enabled }) {
     setShowTrash(false);
     setEditingId(it.id);
     setForm({
+      type: it.type || "notice",
       title: it.title || "",
       summary: it.summary || "",
+      content: it.content || "",
+      category: it.category || "general",
+      scope: it.scope || (tab === "public" ? "전체" : "비공개"),
+      status: it.status || "draft",
+      startAt: it.startAt || "",
+      endAt: it.endAt || "",
+      resultVisibility: it.resultVisibility || "after_close",
+      isPinned: Boolean(it.isPinned),
+      imageUrl: it.imageUrl || "",
       company: it.company || "",
       union: it.union || "",
-      scope: it.scope || (tab === "public" ? "전체" : "비공개"),
+      optionsText: stringifyOptions(it.options || []),
+      multiple: Boolean(it.multiple),
+      maxSelections: Number(it.maxSelections ?? 1),
       order: Number(it.order ?? 1),
-      status: it.status || "draft",
+      active: it.active !== false,
     });
   }
 
@@ -207,53 +318,37 @@ export default function useIssues({ enabled }) {
 
   async function saveEdit() {
     if (!editingId) return;
+    if (!form.title.trim()) throw new Error("제목은 필수야");
 
-    if (!form.title.trim()) {
-      alert("제목은 필수야");
-      return;
+    const payload = normalizePayloadFromForm();
+
+    if (payload.type !== "notice" && payload.options.length === 0) {
+      throw new Error("투표/설문은 옵션이 최소 1개 필요해");
     }
 
     try {
       setSavingIssue(true);
-
-      await updateIssue(tab, editingId, {
-        title: form.title.trim(),
-        summary: form.summary.trim(),
-        company: form.company.trim(),
-        union: form.union.trim(),
-        scope: form.scope || (tab === "public" ? "전체" : "비공개"),
-        status: form.status || "draft",
-        order: Number(form.order) || 1,
-      });
-
+      await updateIssue(tab, editingId, payload, actorUid);
       setEditingId(null);
       resetForm();
-    } catch (err) {
-      console.log("UPDATE ERROR:", err.code, err.message);
-      alert(`저장 실패: ${err.code}`);
     } finally {
       setSavingIssue(false);
     }
   }
 
   async function saveNewIssue() {
-    if (!form.title.trim()) {
-      alert("제목은 필수야");
-      return;
+    if (!form.title.trim()) throw new Error("제목은 필수야");
+
+    const payload = normalizePayloadFromForm();
+
+    if (payload.type !== "notice" && payload.options.length === 0) {
+      throw new Error("투표/설문은 옵션이 최소 1개 필요해");
     }
 
     try {
       setSavingIssue(true);
 
-      const docRef = await createIssue(createTargetTab, {
-        title: form.title.trim(),
-        summary: form.summary.trim(),
-        company: form.company.trim(),
-        union: form.union.trim(),
-        scope: form.scope || (createTargetTab === "public" ? "전체" : "비공개"),
-        status: form.status || "draft",
-        order: Number(form.order) || nextOrder,
-      });
+      const docRef = await createIssue(createTargetTab, payload, actorUid);
 
       setIsCreating(false);
       resetForm(createTargetTab, nextOrder);
@@ -261,108 +356,47 @@ export default function useIssues({ enabled }) {
       if (tab === createTargetTab) {
         setSelectedIssueId(docRef.id);
       }
-    } catch (err) {
-      console.log("ADD ERROR:", err.code, err.message);
-      alert(`추가 실패: ${err.code}`);
     } finally {
       setSavingIssue(false);
     }
   }
 
   async function normalizeIssueOrders() {
-    if (visibleIssues.length === 0) {
-      alert("정렬할 쟁점이 없습니다.");
-      return;
-    }
-
-    if (
-      !window.confirm(
-        `현재 ${tab === "public" ? "공개" : "비공개"} ${
-          showTrash ? "휴지통" : "목록"
-        }의 순서를 1부터 다시 정리할까?`
-      )
-    ) {
-      return;
-    }
+    if (visibleIssues.length === 0) throw new Error("정렬할 안건이 없습니다.");
 
     try {
       setReordering(true);
       await reorderIssues(tab, visibleIssues);
-
-      if (editingId) {
-        const editedIndex = visibleIssues.findIndex((x) => x.id === editingId);
-        if (editedIndex >= 0) {
-          setForm((prev) => ({ ...prev, order: editedIndex + 1 }));
-        }
-      }
-
-      alert("순서 재정렬 완료");
-    } catch (err) {
-      console.log("REORDER ERROR:", err.code, err.message);
-      alert(`순서 재정렬 실패: ${err.code}`);
     } finally {
       setReordering(false);
     }
   }
 
-  async function softDeleteIssue(id) {
-    if (!window.confirm("정말 삭제할까? 이 작업은 문서를 숨김 처리합니다.")) return;
+  async function archiveIssue(id) {
+    await archiveIssueService(tab, id, actorUid);
 
-    try {
-      await softDeleteIssueService(tab, id);
-
-      if (selectedIssueId === id) {
-        setSelectedIssueId(null);
-      }
-
-      if (editingId === id) {
-        setEditingId(null);
-        resetForm();
-      }
-    } catch (err) {
-      console.log("SOFT DELETE ERROR:", err.code, err.message);
-      alert(`삭제 실패: ${err.code}`);
+    if (selectedIssueId === id) setSelectedIssueId(null);
+    if (editingId === id) {
+      setEditingId(null);
+      resetForm();
     }
   }
 
   async function restoreIssue(id) {
-    if (!window.confirm("이 문서를 복구할까?")) return;
-
-    try {
-      await restoreIssueService(tab, id);
-      alert("복구 완료");
-    } catch (err) {
-      console.log("RESTORE ERROR:", err.code, err.message);
-      alert(`복구 실패: ${err.code}`);
-    }
+    await restoreIssueService(tab, id, actorUid);
   }
 
   async function hardDeleteIssue(id) {
-    if (!window.confirm("정말 영구 삭제할까? 이건 되돌리기 어렵다.")) return;
-
-    try {
-      await hardDeleteIssueService(tab, id);
-      alert("영구 삭제 완료");
-    } catch (err) {
-      console.log("HARD DELETE ERROR:", err.code, err.message);
-      alert(`영구 삭제 실패: ${err.code}`);
-    }
+    await hardDeleteIssueService(tab, id);
   }
 
   async function handleChangeIssueStatus(id, nextStatus) {
-    try {
-      await changeIssueStatus(tab, id, nextStatus);
-    } catch (err) {
-      console.log("STATUS UPDATE ERROR:", err.code, err.message);
-      alert(`상태 변경 실패: ${err.code}`);
-    }
+    await changeIssueStatus(tab, id, nextStatus, actorUid);
   }
 
   return {
     tab,
     setTab,
-    issues,
-    liveIssues,
     visibleIssues,
     selectedIssueId,
     setSelectedIssueId,
@@ -386,7 +420,7 @@ export default function useIssues({ enabled }) {
     saveEdit,
     saveNewIssue,
     normalizeIssueOrders,
-    softDeleteIssue,
+    archiveIssue,
     restoreIssue,
     hardDeleteIssue,
     handleChangeIssueStatus,

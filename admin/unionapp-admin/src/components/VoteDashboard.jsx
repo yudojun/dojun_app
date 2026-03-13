@@ -13,7 +13,6 @@ export default function VoteDashboard({
   stats,
   statsLoading,
   memberCount,
-  onResetVoteStats,
   formatStatus,
   statusBadgeStyle,
 }) {
@@ -48,7 +47,7 @@ export default function VoteDashboard({
           </div>
 
           <div style={ui.voteInfoBox}>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>참여</div>
+            <div style={{ fontWeight: 900, fontSize: 16 }}>참여 현황</div>
             <div style={{ marginTop: 6, fontSize: 14, color: "#333" }}>
               총 참여: <b>{stats.total}</b> / 조합원: <b>{memberCount}</b>
             </div>
@@ -67,16 +66,9 @@ export default function VoteDashboard({
             </div>
           </div>
 
-          <div style={{ marginTop: 16, ...ui.buttonRow }}>
-            <button onClick={() => onResetVoteStats(selectedIssueId)}>
-              (옵션) 집계 초기화
-            </button>
-          </div>
-
           <div style={{ marginTop: 10, fontSize: 12, color: "#777", lineHeight: 1.5 }}>
-            ※ “집계 초기화”는 vote_stats만 0으로 되돌립니다. <br />
-            ballots(votes/{`{issueId}`}/ballots)까지 완전 삭제는 운영 안전상 Cloud
-            Functions/서버에서 처리하는 걸 추천.
+            ※ 이 화면은 <b>vote_stats</b> 집계 결과를 읽기 전용으로 표시합니다. <br />
+            결과 집계 문서는 클라이언트에서 직접 수정하지 않고, 서버 자동 집계 기준으로 관리합니다.
           </div>
         </SectionCard>
       )}

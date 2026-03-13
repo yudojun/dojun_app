@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth } from "../firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getAdminDoc } from "../services/adminService";
@@ -47,11 +47,20 @@ export default function useAdminAuth() {
     return signOut(auth);
   }
 
+  const adminRole = useMemo(() => adminDoc?.role || null, [adminDoc]);
+  const isViewer = adminRole === "viewer";
+  const isEditor = adminRole === "editor" || adminRole === "super_admin";
+  const isSuperAdmin = adminRole === "super_admin";
+
   return {
     user,
     authLoading,
     adminOK,
     adminDoc,
+    adminRole,
+    isViewer,
+    isEditor,
+    isSuperAdmin,
     login,
     logout,
   };

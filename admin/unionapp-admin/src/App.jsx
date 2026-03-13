@@ -8,6 +8,8 @@ import useIssues, {
   STATUS_OPTIONS,
   formatStatus,
   statusBadgeStyle,
+  formatType,
+  typeBadgeStyle,
 } from "./hooks/useIssues";
 import useVoteStats from "./hooks/useVoteStats";
 import useConfirm from "./hooks/useConfirm";
@@ -20,7 +22,16 @@ export default function App() {
   const [pw, setPw] = useState("");
   const [toasts, setToasts] = useState([]);
 
-  const { user, authLoading, adminOK, adminDoc, login, logout } = useAdminAuth();
+  const {
+    user,
+    authLoading,
+    adminOK,
+    adminDoc,
+    isEditor,
+    isSuperAdmin,
+    login,
+    logout,
+  } = useAdminAuth();
 
   const {
     tab,
@@ -48,22 +59,23 @@ export default function App() {
     saveEdit,
     saveNewIssue,
     normalizeIssueOrders,
-    softDeleteIssue,
+    archiveIssue,
     restoreIssue,
     hardDeleteIssue,
     handleChangeIssueStatus,
   } = useIssues({
     enabled: !!user && adminOK === true,
+    actorUid: user?.uid || "",
   });
 
-  const { stats, statsLoading, resetVoteStats, setStats } = useVoteStats({
+  const { stats, statsLoading, setStats } = useVoteStats({
     enabled: !!user && adminOK === true,
     selectedIssueId,
   });
 
   const { confirmState, askConfirm, closeConfirm, handleConfirm } = useConfirm();
 
-  const tabTitle = tab === "public" ? "공개 쟁점" : "비공개 쟁점";
+  const tabTitle = tab === "public" ? "공개 안건" : "내부 안건";
 
   const pushToast = useCallback((message, type = "info", duration = 2500) => {
     const id = `${Date.now()}_${Math.random()}`;
@@ -95,47 +107,25 @@ export default function App() {
     }
   }
 
-  function handleResetVoteStats(issueId) {
-    if (!issueId) return;
-
+  function handleArchiveIssue(id) {
     askConfirm({
-      title: "집계 초기화",
-      message: "정말 이 쟁점의 투표 집계를 0으로 초기화할까?",
-      confirmText: "초기화",
+      title: "안건 보관",
+      message: "이 안건을 보관할까? active:false, status:'archived'로 전환됩니다.",
+      confirmText: "보관",
       cancelText: "취소",
-      danger: true,
       onConfirm: async () => {
         try {
-          await resetVoteStats(issueId);
-          pushToast("vote_stats 초기화 완료", "success");
-        } catch (err) {
-          console.log("RESET STATS ERROR:", err.code, err.message);
-          pushToast(`초기화 실패: ${err.code}`, "error");
-        }
-      },
-    });
-  }
-
-  function handleSoftDeleteIssue(id) {
-    askConfirm({
-      title: "문서 삭제",
-      message: "정말 삭제할까? 이 작업은 문서를 숨김 처리합니다.",
-      confirmText: "삭제",
-      cancelText: "취소",
-      danger: true,
-      onConfirm: async () => {
-        try {
-          await softDeleteIssue(id);
+          await archiveIssue(id);
 
           if (selectedIssueId === id) {
             setSelectedIssueId(null);
             setStats({ yes: 0, no: 0, hold: 0, total: 0 });
           }
 
-          pushToast("문서가 휴지통으로 이동됐어", "success");
+          pushToast("안건이 보관됨", "success");
         } catch (err) {
-          console.log("SOFT DELETE ERROR:", err.code, err.message);
-          pushToast(`삭제 실패: ${err.code}`, "error");
+          console.log("ARCHIVE ERROR:", err.code, err.message);
+          pushToast(`보관 실패: ${err.code}`, "error");
         }
       },
     });
@@ -143,14 +133,14 @@ export default function App() {
 
   function handleRestoreIssue(id) {
     askConfirm({
-      title: "문서 복구",
-      message: "이 문서를 복구할까?",
+      title: "안건 복구",
+      message: "이 안건을 다시 활성화할까?",
       confirmText: "복구",
       cancelText: "취소",
       onConfirm: async () => {
         try {
           await restoreIssue(id);
-          pushToast("복구 완료", "success");
+          pushToast("안건 복구 완료", "success");
         } catch (err) {
           console.log("RESTORE ERROR:", err.code, err.message);
           pushToast(`복구 실패: ${err.code}`, "error");
@@ -162,7 +152,7 @@ export default function App() {
   function handleHardDeleteIssue(id) {
     askConfirm({
       title: "영구 삭제",
-      message: "정말 영구 삭제할까? 이건 되돌리기 어렵다.",
+      message: "정말 영구 삭제할까? 이건 super_admin만 해야 한다.",
       confirmText: "영구 삭제",
       cancelText: "취소",
       danger: true,
@@ -181,8 +171,8 @@ export default function App() {
   function handleNormalizeIssueOrders() {
     askConfirm({
       title: "순서 재정렬",
-      message: `현재 ${tab === "public" ? "공개" : "비공개"} ${
-        showTrash ? "휴지통" : "목록"
+      message: `현재 ${tab === "public" ? "공개" : "내부"} ${
+        showTrash ? "보관함" : "목록"
       }의 순서를 1부터 다시 정리할까?`,
       confirmText: "정리",
       cancelText: "취소",
@@ -201,18 +191,18 @@ export default function App() {
   async function handleSaveEdit() {
     try {
       await saveEdit();
-      pushToast("수정 저장 완료", "success");
-    } catch {
-      pushToast("수정 저장 실패", "error");
+      pushToast("안건 저장 완료", "success");
+    } catch (err) {
+      pushToast(err?.message || "안건 저장 실패", "error");
     }
   }
 
   async function handleSaveNewIssue() {
     try {
       await saveNewIssue();
-      pushToast("새 쟁점 추가 완료", "success");
-    } catch {
-      pushToast("쟁점 추가 실패", "error");
+      pushToast("새 안건 추가 완료", "success");
+    } catch (err) {
+      pushToast(err?.message || "안건 추가 실패", "error");
     }
   }
 
@@ -225,13 +215,7 @@ export default function App() {
     }
   }
 
-  if (authLoading) {
-    return (
-      <div style={ui.statusPage}>
-        <h2>로그인 상태 확인 중...</h2>
-      </div>
-    );
-  }
+  if (authLoading) return <div style={ui.statusPage}><h2>로그인 상태 확인 중...</h2></div>;
 
   if (!user) {
     return (
@@ -255,44 +239,12 @@ export default function App() {
             <button style={{ width: "100%", padding: 10 }}>로그인</button>
           </form>
         </div>
-
         <Toast items={toasts} onRemove={removeToast} />
-        <ConfirmDialog
-          open={confirmState.open}
-          title={confirmState.title}
-          message={confirmState.message}
-          confirmText={confirmState.confirmText}
-          cancelText={confirmState.cancelText}
-          danger={confirmState.danger}
-          onConfirm={handleConfirm}
-          onCancel={closeConfirm}
-        />
       </>
     );
   }
 
-  if (adminOK === null) {
-    return (
-      <>
-        <div style={ui.statusPage}>
-          <h2>관리자 권한 확인 중...</h2>
-          <div style={ui.uidText}>UID: {user.uid}</div>
-        </div>
-
-        <Toast items={toasts} onRemove={removeToast} />
-        <ConfirmDialog
-          open={confirmState.open}
-          title={confirmState.title}
-          message={confirmState.message}
-          confirmText={confirmState.confirmText}
-          cancelText={confirmState.cancelText}
-          danger={confirmState.danger}
-          onConfirm={handleConfirm}
-          onCancel={closeConfirm}
-        />
-      </>
-    );
-  }
+  if (adminOK === null) return <div style={ui.statusPage}><h2>관리자 권한 확인 중...</h2></div>;
 
   if (adminOK === false) {
     return (
@@ -300,23 +252,9 @@ export default function App() {
         <div style={ui.statusPage}>
           <h2>권한 없음</h2>
           <div style={ui.uidText}>UID: {user.uid}</div>
-          <p style={{ marginTop: 16, color: "#b00" }}>
-            admins/{user.uid} 문서가 없거나, active=true / role="admin"이 아닙니다.
-          </p>
           <button onClick={handleLogout}>로그아웃</button>
         </div>
-
         <Toast items={toasts} onRemove={removeToast} />
-        <ConfirmDialog
-          open={confirmState.open}
-          title={confirmState.title}
-          message={confirmState.message}
-          confirmText={confirmState.confirmText}
-          cancelText={confirmState.cancelText}
-          danger={confirmState.danger}
-          onConfirm={handleConfirm}
-          onCancel={closeConfirm}
-        />
       </>
     );
   }
@@ -327,21 +265,23 @@ export default function App() {
         <h2>unionapp 관리자</h2>
         <div style={ui.uidText}>UID: {user.uid}</div>
         <div style={ui.metaText}>
-          관리자: {adminDoc?.name || "(이름 없음)"} / role: {adminDoc?.role || "?"}
+          관리자: {adminDoc?.displayName || adminDoc?.name || "(이름 없음)"} / role: {adminDoc?.role || "?"}
         </div>
 
         <div style={ui.toolbar}>
           <button onClick={handleLogout}>로그아웃</button>
-          <button onClick={() => startCreate("public")}>+ 공개 쟁점 추가</button>
-          <button onClick={() => startCreate("private")}>+ 비공개 쟁점 추가</button>
-          <button
-            onClick={handleNormalizeIssueOrders}
-            disabled={reordering || visibleIssues.length === 0}
-          >
-            {reordering ? "순서 정리 중..." : `${tab === "public" ? "공개" : "비공개"} 순서 정리`}
-          </button>
+
+          {isEditor && (
+            <>
+              <button onClick={() => startCreate("public")}>+ 공개 안건 추가</button>
+              <button onClick={handleNormalizeIssueOrders} disabled={reordering || visibleIssues.length === 0}>
+                {reordering ? "순서 정리 중..." : `${tab === "public" ? "공개" : "내부"} 순서 정리`}
+              </button>
+            </>
+          )}
+
           <button onClick={() => setShowTrash((p) => !p)}>
-            {showTrash ? "기본 목록 보기" : "휴지통 보기"}
+            {showTrash ? "기본 목록 보기" : "보관함 보기"}
           </button>
 
           <div style={ui.tabGroup}>
@@ -354,21 +294,24 @@ export default function App() {
             >
               공개
             </button>
-            <button
-              onClick={() => setTab("private")}
-              style={{
-                fontWeight: tab === "private" ? 800 : 400,
-                opacity: tab === "private" ? 1 : 0.6,
-              }}
-            >
-              비공개
-            </button>
+
+            {isEditor && (
+              <button
+                onClick={() => setTab("private")}
+                style={{
+                  fontWeight: tab === "private" ? 800 : 400,
+                  opacity: tab === "private" ? 1 : 0.6,
+                }}
+              >
+                내부
+              </button>
+            )}
           </div>
         </div>
 
         <div style={ui.filterGrid}>
           <input
-            placeholder="제목 / 요약 / 회사안 / 조합안 검색"
+            placeholder="제목 / 요약 / 본문 검색"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={ui.input}
@@ -387,15 +330,8 @@ export default function App() {
             ))}
           </select>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              fontWeight: 700,
-              color: "#334155",
-            }}
-          >
-            {showTrash ? "휴지통 모드" : `${tabTitle} 목록`}
+          <div style={{ display: "flex", alignItems: "center", fontWeight: 700, color: "#334155" }}>
+            {showTrash ? "보관함 모드" : `${tabTitle} 목록`}
           </div>
         </div>
 
@@ -415,7 +351,7 @@ export default function App() {
             onSaveEdit={handleSaveEdit}
             onCancelEdit={cancelEdit}
             onStartEdit={startEdit}
-            onSoftDelete={handleSoftDeleteIssue}
+            onArchive={handleArchiveIssue}
             onRestore={handleRestoreIssue}
             onHardDelete={handleHardDeleteIssue}
             onChangeStatus={handleIssueStatusChange}
@@ -424,6 +360,10 @@ export default function App() {
             statusOptions={STATUS_OPTIONS}
             formatStatus={formatStatus}
             statusBadgeStyle={statusBadgeStyle}
+            formatType={formatType}
+            typeBadgeStyle={typeBadgeStyle}
+            canCreateOrEdit={isEditor}
+            canHardDelete={isSuperAdmin}
           />
 
           <VoteDashboard
@@ -432,7 +372,6 @@ export default function App() {
             stats={stats}
             statsLoading={statsLoading}
             memberCount={MEMBER_COUNT}
-            onResetVoteStats={handleResetVoteStats}
             formatStatus={formatStatus}
             statusBadgeStyle={statusBadgeStyle}
           />

@@ -2,6 +2,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
 const COL_ADMINS = "admins";
+const ALLOWED_ROLES = ["viewer", "editor", "super_admin"];
 
 export async function getAdminDoc(uid) {
   const ref = doc(db, COL_ADMINS, uid);
@@ -14,11 +15,13 @@ export async function getAdminDoc(uid) {
     };
   }
 
-  const data = snap.data();
-  const ok = data?.active === true && data?.role === "admin";
+  const data = snap.data() || {};
+  const role = data.role || null;
+  const isActive = data.active === true;
+  const hasValidRole = ALLOWED_ROLES.includes(role);
 
   return {
-    ok,
+    ok: isActive && hasValidRole,
     data: { id: snap.id, ...data },
   };
 }

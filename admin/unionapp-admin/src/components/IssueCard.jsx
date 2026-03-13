@@ -12,7 +12,7 @@ export default function IssueCard({
   onSaveEdit,
   onCancelEdit,
   onStartEdit,
-  onSoftDelete,
+  onArchive,
   onRestore,
   onHardDelete,
   onChangeStatus,
@@ -21,10 +21,15 @@ export default function IssueCard({
   statusOptions,
   formatStatus,
   statusBadgeStyle,
+  formatType,
+  typeBadgeStyle,
+  canEdit,
+  canHardDelete,
 }) {
-  const cardStyle = isSelected && !showTrash
-    ? { ...ui.issueCard, ...ui.issueCardSelected }
-    : ui.issueCard;
+  const cardStyle =
+    isSelected && !showTrash
+      ? { ...ui.issueCard, ...ui.issueCardSelected }
+      : ui.issueCard;
 
   return (
     <div
@@ -39,6 +44,9 @@ export default function IssueCard({
             <div style={{ fontWeight: 800, fontSize: 18 }}>
               {issue.title || "(제목 없음)"}
             </div>
+            <div style={typeBadgeStyle(issue.type || "notice")}>
+              {formatType(issue.type || "notice")}
+            </div>
             <div style={statusBadgeStyle(issue.status || "draft")}>
               {formatStatus(issue.status || "draft")}
             </div>
@@ -48,58 +56,97 @@ export default function IssueCard({
           </div>
 
           <div style={ui.subText}>요약: {issue.summary || ""}</div>
-          <div style={{ marginTop: 10 }}>
-            <b>회사안</b>: {issue.company || ""}
-          </div>
-          <div style={{ marginTop: 6 }}>
-            <b>조합안</b>: {issue.union || ""}
-          </div>
+
+          {issue.type === "notice" && (
+            <>
+              <div style={{ marginTop: 6 }}>
+                <b>본문</b>: {(issue.content || "").slice(0, 100)}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <b>이미지</b>: {issue.imageUrl ? "있음" : "없음"}
+              </div>
+            </>
+          )}
+
+          {issue.type === "vote" && (
+            <>
+              <div style={{ marginTop: 10 }}>
+                <b>회사안</b>: {issue.company || ""}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <b>조합안</b>: {issue.union || ""}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <b>옵션 수</b>: {Array.isArray(issue.options) ? issue.options.length : 0}
+              </div>
+            </>
+          )}
+
+          {issue.type === "survey" && (
+            <>
+              <div style={{ marginTop: 6 }}>
+                <b>옵션 수</b>: {Array.isArray(issue.options) ? issue.options.length : 0}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <b>복수 선택</b>: {issue.multiple ? "허용" : "단일"}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <b>최대 선택</b>: {issue.maxSelections ?? 1}
+              </div>
+            </>
+          )}
+
           <div style={{ marginTop: 6 }}>
             <b>범위</b>: {issue.scope || "전체"}
           </div>
           <div style={{ marginTop: 6 }}>
             <b>상태</b>: {formatStatus(issue.status || "draft")}
           </div>
+          <div style={{ marginTop: 6 }}>
+            <b>활성</b>: {issue.active === false ? "비활성" : "활성"}
+          </div>
           <div style={{ marginTop: 8, ...ui.mutedText }}>
             순서: {issue.order ?? "(없음)"}
           </div>
 
           {!showTrash ? (
-            <div style={ui.actionsRow}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onStartEdit(issue);
-                }}
-              >
-                편집
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSoftDelete(issue.id);
-                }}
-              >
-                삭제
-              </button>
-
-              {statusOptions.map((opt) => (
+            canEdit && (
+              <div style={ui.actionsRow}>
                 <button
-                  key={opt.value}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onChangeStatus(issue.id, opt.value);
+                    onStartEdit(issue);
                   }}
-                  disabled={(issue.status || "draft") === opt.value}
                 >
-                  {opt.label}
+                  편집
                 </button>
-              ))}
-            </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onArchive(issue.id);
+                  }}
+                >
+                  보관
+                </button>
+
+                {statusOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onChangeStatus(issue.id, opt.value);
+                    }}
+                    disabled={(issue.status || "draft") === opt.value}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )
           ) : (
             <div style={ui.actionsRow}>
-              <button onClick={() => onRestore(issue.id)}>복구</button>
-              <button onClick={() => onHardDelete(issue.id)}>영구 삭제</button>
+              {canEdit && <button onClick={() => onRestore(issue.id)}>복구</button>}
+              {canHardDelete && <button onClick={() => onHardDelete(issue.id)}>영구 삭제</button>}
             </div>
           )}
         </>

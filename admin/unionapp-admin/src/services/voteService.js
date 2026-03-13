@@ -1,4 +1,4 @@
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 
 const COL_VOTE_STATS = "vote_stats";
@@ -23,21 +23,5 @@ export function subscribeVoteStats(issueId, onData, onError) {
       });
     },
     onError
-  );
-}
-
-export async function resetVoteStats(issueId) {
-  const ref = doc(db, COL_VOTE_STATS, issueId);
-
-  return setDoc(
-    ref,
-    {
-      yes: 0,
-      no: 0,
-      hold: 0,
-      total: 0,
-      updated_at: serverTimestamp(),
-    },
-    { merge: true }
   );
 }

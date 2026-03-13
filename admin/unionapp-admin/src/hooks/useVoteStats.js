@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { resetVoteStats as resetVoteStatsService, subscribeVoteStats } from "../services/voteService";
+import { subscribeVoteStats } from "../services/voteService";
 
 export default function useVoteStats({ enabled, selectedIssueId }) {
   const [stats, setStats] = useState({ yes: 0, no: 0, hold: 0, total: 0 });
@@ -30,14 +30,9 @@ export default function useVoteStats({ enabled, selectedIssueId }) {
     return () => unsub();
   }, [enabled, selectedIssueId]);
 
-  async function resetVoteStats(issueId) {
-    return resetVoteStatsService(issueId);
-  }
-
   return {
     stats,
     statsLoading,
-    resetVoteStats,
     setStats,
   };
 }

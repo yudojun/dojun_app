@@ -18,7 +18,7 @@ export default function IssueListPanel({
   onSaveEdit,
   onCancelEdit,
   onStartEdit,
-  onSoftDelete,
+  onArchive,
   onRestore,
   onHardDelete,
   onChangeStatus,
@@ -27,14 +27,18 @@ export default function IssueListPanel({
   statusOptions,
   formatStatus,
   statusBadgeStyle,
+  formatType,
+  typeBadgeStyle,
+  canCreateOrEdit,
+  canHardDelete,
 }) {
   return (
     <div style={ui.panel}>
       <h3>
-        쟁점 목록 ({showTrash ? "휴지통" : tabTitle}) / {visibleIssues.length}건
+        안건 목록 ({showTrash ? "보관함" : tabTitle}) / {visibleIssues.length}건
       </h3>
 
-      {isCreating && createTargetTab === tab && !showTrash && (
+      {isCreating && createTargetTab === tab && !showTrash && canCreateOrEdit && (
         <div style={{ marginBottom: 12 }}>
           <IssueForm
             mode="create"
@@ -52,7 +56,7 @@ export default function IssueListPanel({
       {visibleIssues.length === 0 ? (
         <SectionCard>
           <div style={{ color: "#777" }}>
-            {showTrash ? "휴지통에 문서가 없습니다." : "현재 문서가 없습니다."}
+            {showTrash ? "보관된 안건이 없습니다." : "현재 안건이 없습니다."}
           </div>
         </SectionCard>
       ) : (
@@ -70,7 +74,7 @@ export default function IssueListPanel({
               onSaveEdit={onSaveEdit}
               onCancelEdit={onCancelEdit}
               onStartEdit={onStartEdit}
-              onSoftDelete={onSoftDelete}
+              onArchive={onArchive}
               onRestore={onRestore}
               onHardDelete={onHardDelete}
               onChangeStatus={onChangeStatus}
@@ -79,6 +83,10 @@ export default function IssueListPanel({
               statusOptions={statusOptions}
               formatStatus={formatStatus}
               statusBadgeStyle={statusBadgeStyle}
+              formatType={formatType}
+              typeBadgeStyle={typeBadgeStyle}
+              canEdit={canCreateOrEdit}
+              canHardDelete={canHardDelete}
             />
           ))}
         </div>

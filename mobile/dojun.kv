@@ -56,12 +56,12 @@ ScreenManager:
                 theme_text_color: "Custom"
                 text_color: 1, 1, 1, 1
 
-        # ===== 커스텀 탭 바 =====
+                # ===== 커스텀 탭 바 =====
         MDBoxLayout:
             size_hint_y: None
             height: dp(56)
             padding: dp(12), dp(8)
-            spacing: dp(20)
+            spacing: dp(10)
             md_bg_color: 0.96, 0.97, 0.98, 1
 
             MDLabel:
@@ -77,22 +77,31 @@ ScreenManager:
                 on_release: root.set_tab("전체")
 
             MDFlatButton:
-                id: tab_company
-                text: "회사안"
+                id: tab_notice
+                text: "공지"
                 font_name: "Nanum"
                 theme_text_color: "Custom"
                 text_color: 0.25, 0.25, 0.25, 1
                 md_bg_color: 1, 1, 1, 1
-                on_release: root.set_tab("회사안")
+                on_release: root.set_tab("공지")
 
             MDFlatButton:
-                id: tab_union
-                text: "조합안"
+                id: tab_vote
+                text: "투표"
                 font_name: "Nanum"
                 theme_text_color: "Custom"
                 text_color: 0.25, 0.25, 0.25, 1
                 md_bg_color: 1, 1, 1, 1
-                on_release: root.set_tab("조합안")
+                on_release: root.set_tab("투표")
+
+            MDFlatButton:
+                id: tab_survey
+                text: "설문"
+                font_name: "Nanum"
+                theme_text_color: "Custom"
+                text_color: 0.25, 0.25, 0.25, 1
+                md_bg_color: 1, 1, 1, 1
+                on_release: root.set_tab("설문")
 
             MDLabel:
                 size_hint_x: 1
@@ -182,7 +191,7 @@ ScreenManager:
         md_bg_color: 0.96, 0.97, 0.98, 1
 
         MDTopAppBar:
-            title: "쟁점 상세"
+            title: "안건 상세"
             elevation: 0
             md_bg_color: 0.13, 0.58, 0.92, 1
             left_action_items: [["arrow-left", lambda x: app.go_main()]]
@@ -197,4 +206,4 @@ ScreenManager:
                 size_hint_y: None
                 height: self.minimum_height
                 padding: dp(16)
-                spacing: dp(16)
+                spacing: dp(14)
