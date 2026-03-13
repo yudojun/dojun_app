@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Timestamp } from "firebase/firestore";
 import {
   archiveIssue as archiveIssueService,
   changeIssueStatus,
@@ -117,6 +118,139 @@ export function typeBadgeStyle(type) {
   };
 }
 
+function toFirestoreTimestamp(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("날짜 형식이 올바르지 않아");
+  }
+
+  return Timestamp.fromDate(date);
+}
+
+function validateForm(form) {
+  const type = form.type || "notice";
+  const title = String(form.title || "").trim();
+  const content = String(form.content || "").trim();
+  const options = parseOptions(form.optionsText);
+  const startAt = form.startAt ? new Date(form.startAt).getTime() : null;
+  const endAt = form.endAt ? new Date(form.endAt).getTime() : null;
+  const maxSelections = Number(form.maxSelections || 1);
+
+  if (!title) {
+    throw new Error("제목은 필수야");
+  }
+
+  if (type === "notice" && !content) {
+    throw new Error("공지는 본문이 필요해");
+  }
+
+  if ((type === "vote" || type === "survey") && options.length < 2) {
+    throw new Error("투표/설문 옵션은 최소 2개 이상 필요해");
+  }
+
+  if (
+    startAt !== null &&
+    endAt !== null &&
+    Number.isFinite(startAt) &&
+    Number.isFinite(endAt) &&
+    startAt > endAt
+  ) {
+    throw new Error("종료일시는 시작일시보다 빠를 수 없어");
+  }
+
+  if (type === "survey" && form.multiple) {
+    if (maxSelections < 2) {
+      throw new Error("복수 선택 설문은 최대 선택 수가 2 이상이어야 해");
+    }
+
+    if (maxSelections > options.length) {
+      throw new Error("최대 선택 수는 옵션 수를 넘을 수 없어");
+    }
+  }
+}
+
+function normalizePayloadFromForm(form, fallbackTab) {
+  const type = form.type || "notice";
+  const parsedOptions = parseOptions(form.optionsText);
+  const scopeFallback = fallbackTab === "public" ? "전체" : "비공개";
+  const trimmedCategory = String(form.category || "").trim() || "general";
+
+  const startAtTs = toFirestoreTimestamp(form.startAt);
+  const endAtTs = toFirestoreTimestamp(form.endAt);
+
+  if (type === "notice") {
+    return {
+      type: "notice",
+      title: String(form.title || "").trim(),
+      summary: String(form.summary || "").trim(),
+      content: String(form.content || "").trim(),
+      category: trimmedCategory,
+      scope: form.scope || scopeFallback,
+      status: form.status || "draft",
+      startAt: startAtTs,
+      endAt: endAtTs,
+      resultVisibility: "public",
+      isPinned: Boolean(form.isPinned),
+      imageUrl: String(form.imageUrl || "").trim(),
+      company: "",
+      union: "",
+      options: [],
+      multiple: false,
+      maxSelections: 1,
+      order: Number(form.order) || 1,
+      active: form.status === "archived" ? false : true,
+    };
+  }
+
+  if (type === "vote") {
+    return {
+      type: "vote",
+      title: String(form.title || "").trim(),
+      summary: String(form.summary || "").trim(),
+      content: "",
+      category: trimmedCategory,
+      scope: form.scope || scopeFallback,
+      status: form.status || "draft",
+      startAt: startAtTs,
+      endAt: endAtTs,
+      resultVisibility: form.resultVisibility || "after_close",
+      isPinned: Boolean(form.isPinned),
+      imageUrl: "",
+      company: String(form.company || "").trim(),
+      union: String(form.union || "").trim(),
+      options: parsedOptions,
+      multiple: false,
+      maxSelections: 1,
+      order: Number(form.order) || 1,
+      active: form.status === "archived" ? false : true,
+    };
+  }
+
+  return {
+    type: "survey",
+    title: String(form.title || "").trim(),
+    summary: String(form.summary || "").trim(),
+    content: "",
+    category: trimmedCategory,
+    scope: form.scope || scopeFallback,
+    status: form.status || "draft",
+    startAt: startAtTs,
+    endAt: endAtTs,
+    resultVisibility: form.resultVisibility || "after_close",
+    isPinned: Boolean(form.isPinned),
+    imageUrl: "",
+    company: "",
+    union: "",
+    options: parsedOptions,
+    multiple: Boolean(form.multiple),
+    maxSelections: form.multiple ? Number(form.maxSelections || 1) : 1,
+    order: Number(form.order) || 1,
+    active: form.status === "archived" ? false : true,
+  };
+}
+
 export default function useIssues({ enabled, actorUid }) {
   const [tab, setTab] = useState("public");
   const [issues, setIssues] = useState([]);
@@ -135,6 +269,8 @@ export default function useIssues({ enabled, actorUid }) {
 
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const isBusy = savingIssue || reordering;
 
   const activeIssues = useMemo(() => {
     return issues.filter((it) => it.active !== false && it.status !== "archived");
@@ -179,46 +315,6 @@ export default function useIssues({ enabled, actorUid }) {
     setForm(createEmptyForm(targetTab, order));
   }
 
-  function normalizePayloadFromForm() {
-    const type = form.type || "notice";
-    const parsedOptions = parseOptions(form.optionsText);
-
-    return {
-      type,
-      title: form.title.trim(),
-      summary: form.summary.trim(),
-      content: type === "notice" ? form.content.trim() : "",
-      category: form.category || "general",
-      scope: form.scope || (tab === "public" ? "전체" : "비공개"),
-      status: form.status || "draft",
-      startAt: form.startAt || null,
-      endAt: form.endAt || null,
-      resultVisibility:
-        type === "notice" ? "public" : form.resultVisibility || "after_close",
-      isPinned: Boolean(form.isPinned),
-      imageUrl: type === "notice" ? form.imageUrl.trim() : "",
-      company: type === "vote" ? form.company.trim() : "",
-      union: type === "vote" ? form.union.trim() : "",
-      options:
-        type === "notice"
-          ? []
-          : parsedOptions.length > 0
-            ? parsedOptions
-            : type === "vote"
-              ? ["찬성", "반대", "보류"]
-              : [],
-      multiple: type === "survey" ? Boolean(form.multiple) : false,
-      maxSelections:
-        type === "survey"
-          ? form.multiple
-            ? Number(form.maxSelections || 1)
-            : 1
-          : 1,
-      order: Number(form.order) || 1,
-      active: form.status === "archived" ? false : true,
-    };
-  }
-
   useEffect(() => {
     if (!enabled) return;
 
@@ -228,15 +324,12 @@ export default function useIssues({ enabled, actorUid }) {
         setIssues(rows);
 
         const liveRows = rows.filter((x) => x.active !== false && x.status !== "archived");
-        if (liveRows.length === 0) {
-          setSelectedIssueId(null);
-          return;
-        }
 
-        const stillExists = liveRows.some((x) => x.id === selectedIssueId);
-        if (!selectedIssueId || !stillExists) {
-          setSelectedIssueId(liveRows[0].id);
-        }
+        setSelectedIssueId((prev) => {
+          if (liveRows.length === 0) return null;
+          if (prev && liveRows.some((x) => x.id === prev)) return prev;
+          return liveRows[0].id;
+        });
       },
       (err) => {
         console.log("ISSUES READ ERROR:", err.code, err.message);
@@ -244,14 +337,15 @@ export default function useIssues({ enabled, actorUid }) {
     );
 
     return () => unsub();
-  }, [enabled, tab, selectedIssueId]);
+  }, [enabled, tab]);
 
   useEffect(() => {
     setEditingId(null);
     setIsCreating(false);
     setShowTrash(false);
-    resetForm(tab, nextOrder);
-  }, [tab, nextOrder]);
+    setPendingCreateTab(null);
+    resetForm(tab, 1);
+  }, [tab]);
 
   useEffect(() => {
     if (!pendingCreateTab) return;
@@ -266,6 +360,8 @@ export default function useIssues({ enabled, actorUid }) {
   }, [tab, pendingCreateTab, nextOrder]);
 
   function startCreate(targetTab) {
+    if (isBusy) return;
+
     setPendingCreateTab(targetTab);
 
     if (tab !== targetTab) {
@@ -282,9 +378,12 @@ export default function useIssues({ enabled, actorUid }) {
   }
 
   function startEdit(it) {
+    if (isBusy) return;
+
     setPendingCreateTab(null);
     setIsCreating(false);
     setShowTrash(false);
+    setSelectedIssueId(it.id);
     setEditingId(it.id);
     setForm({
       type: it.type || "notice",
@@ -296,7 +395,8 @@ export default function useIssues({ enabled, actorUid }) {
       status: it.status || "draft",
       startAt: it.startAt || "",
       endAt: it.endAt || "",
-      resultVisibility: it.resultVisibility || "after_close",
+      resultVisibility:
+        it.type === "notice" ? "public" : it.resultVisibility || "after_close",
       isPinned: Boolean(it.isPinned),
       imageUrl: it.imageUrl || "",
       company: it.company || "",
@@ -310,6 +410,8 @@ export default function useIssues({ enabled, actorUid }) {
   }
 
   function cancelEdit() {
+    if (isBusy) return;
+
     setEditingId(null);
     setIsCreating(false);
     setPendingCreateTab(null);
@@ -317,33 +419,27 @@ export default function useIssues({ enabled, actorUid }) {
   }
 
   async function saveEdit() {
+    if (isBusy) return;
     if (!editingId) return;
-    if (!form.title.trim()) throw new Error("제목은 필수야");
 
-    const payload = normalizePayloadFromForm();
-
-    if (payload.type !== "notice" && payload.options.length === 0) {
-      throw new Error("투표/설문은 옵션이 최소 1개 필요해");
-    }
+    validateForm(form);
+    const payload = normalizePayloadFromForm(form, tab);
 
     try {
       setSavingIssue(true);
       await updateIssue(tab, editingId, payload, actorUid);
       setEditingId(null);
-      resetForm();
+      resetForm(tab, nextOrder);
     } finally {
       setSavingIssue(false);
     }
   }
 
   async function saveNewIssue() {
-    if (!form.title.trim()) throw new Error("제목은 필수야");
+    if (isBusy) return;
 
-    const payload = normalizePayloadFromForm();
-
-    if (payload.type !== "notice" && payload.options.length === 0) {
-      throw new Error("투표/설문은 옵션이 최소 1개 필요해");
-    }
+    validateForm(form);
+    const payload = normalizePayloadFromForm(form, createTargetTab || tab);
 
     try {
       setSavingIssue(true);
@@ -362,7 +458,10 @@ export default function useIssues({ enabled, actorUid }) {
   }
 
   async function normalizeIssueOrders() {
-    if (visibleIssues.length === 0) throw new Error("정렬할 안건이 없습니다.");
+    if (isBusy) return;
+    if (visibleIssues.length === 0) {
+      throw new Error("정렬할 안건이 없습니다.");
+    }
 
     try {
       setReordering(true);
@@ -373,25 +472,53 @@ export default function useIssues({ enabled, actorUid }) {
   }
 
   async function archiveIssue(id) {
-    await archiveIssueService(tab, id, actorUid);
+    if (isBusy) return;
 
-    if (selectedIssueId === id) setSelectedIssueId(null);
-    if (editingId === id) {
-      setEditingId(null);
-      resetForm();
+    try {
+      setSavingIssue(true);
+      await archiveIssueService(tab, id, actorUid);
+
+      if (selectedIssueId === id) setSelectedIssueId(null);
+      if (editingId === id) {
+        setEditingId(null);
+        resetForm();
+      }
+    } finally {
+      setSavingIssue(false);
     }
   }
 
   async function restoreIssue(id) {
-    await restoreIssueService(tab, id, actorUid);
+    if (isBusy) return;
+
+    try {
+      setSavingIssue(true);
+      await restoreIssueService(tab, id, actorUid);
+    } finally {
+      setSavingIssue(false);
+    }
   }
 
   async function hardDeleteIssue(id) {
-    await hardDeleteIssueService(tab, id);
+    if (isBusy) return;
+
+    try {
+      setSavingIssue(true);
+      await hardDeleteIssueService(tab, id);
+    } finally {
+      setSavingIssue(false);
+    }
   }
 
   async function handleChangeIssueStatus(id, nextStatus) {
-    await changeIssueStatus(tab, id, nextStatus, actorUid);
+    if (isBusy) return;
+
+    try {
+      setSavingIssue(true);
+      await changeIssueStatus(tab, id, nextStatus, actorUid);
+    } finally {
+      setSavingIssue(false);
+    }
   }
 
   return {

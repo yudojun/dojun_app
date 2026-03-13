@@ -1,6 +1,12 @@
 import IssueForm from "./IssueForm";
 import { ui } from "../styles/ui";
 
+function previewText(value, max = 100) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
 export default function IssueCard({
   issue,
   isEditing,
@@ -31,36 +37,51 @@ export default function IssueCard({
       ? { ...ui.issueCard, ...ui.issueCardSelected }
       : ui.issueCard;
 
+  const isLocked = !!savingIssue;
+  const canSelectCard = !showTrash && !isEditing && !isLocked;
+  const currentStatus = issue.status || "draft";
+
+  const handleCardClick = () => {
+    if (!canSelectCard) return;
+    onSelectIssue(issue.id);
+  };
+
+  const stopClick = (e) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div
-      style={cardStyle}
-      onClick={() => {
-        if (!showTrash) onSelectIssue(issue.id);
-      }}
-    >
+    <div style={cardStyle} onClick={handleCardClick}>
       {!isEditing ? (
         <>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
             <div style={{ fontWeight: 800, fontSize: 18 }}>
               {issue.title || "(제목 없음)"}
             </div>
             <div style={typeBadgeStyle(issue.type || "notice")}>
               {formatType(issue.type || "notice")}
             </div>
-            <div style={statusBadgeStyle(issue.status || "draft")}>
-              {formatStatus(issue.status || "draft")}
+            <div style={statusBadgeStyle(currentStatus)}>
+              {formatStatus(currentStatus)}
             </div>
             <div style={{ marginLeft: "auto", ...ui.mutedText }}>
               id: {issue.id}
             </div>
           </div>
 
-          <div style={ui.subText}>요약: {issue.summary || ""}</div>
+          <div style={ui.subText}>요약: {previewText(issue.summary, 120)}</div>
 
           {issue.type === "notice" && (
             <>
               <div style={{ marginTop: 6 }}>
-                <b>본문</b>: {(issue.content || "").slice(0, 100)}
+                <b>본문</b>: {previewText(issue.content, 100)}
               </div>
               <div style={{ marginTop: 6 }}>
                 <b>이미지</b>: {issue.imageUrl ? "있음" : "없음"}
@@ -71,10 +92,10 @@ export default function IssueCard({
           {issue.type === "vote" && (
             <>
               <div style={{ marginTop: 10 }}>
-                <b>회사안</b>: {issue.company || ""}
+                <b>회사안</b>: {previewText(issue.company, 80)}
               </div>
               <div style={{ marginTop: 6 }}>
-                <b>조합안</b>: {issue.union || ""}
+                <b>조합안</b>: {previewText(issue.union, 80)}
               </div>
               <div style={{ marginTop: 6 }}>
                 <b>옵션 수</b>: {Array.isArray(issue.options) ? issue.options.length : 0}
@@ -100,7 +121,7 @@ export default function IssueCard({
             <b>범위</b>: {issue.scope || "전체"}
           </div>
           <div style={{ marginTop: 6 }}>
-            <b>상태</b>: {formatStatus(issue.status || "draft")}
+            <b>상태</b>: {formatStatus(currentStatus)}
           </div>
           <div style={{ marginTop: 6 }}>
             <b>활성</b>: {issue.active === false ? "비활성" : "활성"}
@@ -111,20 +132,17 @@ export default function IssueCard({
 
           {!showTrash ? (
             canEdit && (
-              <div style={ui.actionsRow}>
+              <div style={ui.actionsRow} onClick={stopClick}>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartEdit(issue);
-                  }}
+                  onClick={() => onStartEdit(issue)}
+                  disabled={isLocked}
                 >
                   편집
                 </button>
+
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onArchive(issue.id);
-                  }}
+                  onClick={() => onArchive(issue.id)}
+                  disabled={isLocked}
                 >
                   보관
                 </button>
@@ -132,11 +150,8 @@ export default function IssueCard({
                 {statusOptions.map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onChangeStatus(issue.id, opt.value);
-                    }}
-                    disabled={(issue.status || "draft") === opt.value}
+                    onClick={() => onChangeStatus(issue.id, opt.value)}
+                    disabled={isLocked || currentStatus === opt.value}
                   >
                     {opt.label}
                   </button>
@@ -144,23 +159,40 @@ export default function IssueCard({
               </div>
             )
           ) : (
-            <div style={ui.actionsRow}>
-              {canEdit && <button onClick={() => onRestore(issue.id)}>복구</button>}
-              {canHardDelete && <button onClick={() => onHardDelete(issue.id)}>영구 삭제</button>}
+            <div style={ui.actionsRow} onClick={stopClick}>
+              {canEdit && (
+                <button
+                  onClick={() => onRestore(issue.id)}
+                  disabled={isLocked}
+                >
+                  복구
+                </button>
+              )}
+
+              {canHardDelete && (
+                <button
+                  onClick={() => onHardDelete(issue.id)}
+                  disabled={isLocked}
+                >
+                  영구 삭제
+                </button>
+              )}
             </div>
           )}
         </>
       ) : (
-        <IssueForm
-          mode="edit"
-          form={form}
-          setForm={setForm}
-          onSave={onSaveEdit}
-          onCancel={onCancelEdit}
-          currentTab={tab}
-          saving={savingIssue}
-          statusOptions={statusOptions}
-        />
+        <div onClick={stopClick}>
+          <IssueForm
+            mode="edit"
+            form={form}
+            setForm={setForm}
+            onSave={onSaveEdit}
+            onCancel={onCancelEdit}
+            currentTab={tab}
+            saving={savingIssue}
+            statusOptions={statusOptions}
+          />
+        </div>
       )}
     </div>
   );

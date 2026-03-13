@@ -32,13 +32,23 @@ export default function IssueListPanel({
   canCreateOrEdit,
   canHardDelete,
 }) {
+  const isCreateFormOpen =
+    !showTrash && canCreateOrEdit && isCreating && createTargetTab === tab;
+
+  const activeEditingId = isCreateFormOpen ? null : editingId;
+
+  const isInteractionLocked = savingIssue;
+
+  const canShowEmptyTrash = showTrash && visibleIssues.length === 0;
+  const canShowEmptyActive = !showTrash && visibleIssues.length === 0;
+
   return (
     <div style={ui.panel}>
       <h3>
         안건 목록 ({showTrash ? "보관함" : tabTitle}) / {visibleIssues.length}건
       </h3>
 
-      {isCreating && createTargetTab === tab && !showTrash && canCreateOrEdit && (
+      {isCreateFormOpen && (
         <div style={{ marginBottom: 12 }}>
           <IssueForm
             mode="create"
@@ -53,7 +63,7 @@ export default function IssueListPanel({
         </div>
       )}
 
-      {visibleIssues.length === 0 ? (
+      {canShowEmptyTrash || canShowEmptyActive ? (
         <SectionCard>
           <div style={{ color: "#777" }}>
             {showTrash ? "보관된 안건이 없습니다." : "현재 안건이 없습니다."}
@@ -61,34 +71,39 @@ export default function IssueListPanel({
         </SectionCard>
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
-          {visibleIssues.map((issue) => (
-            <IssueCard
-              key={issue.id}
-              issue={issue}
-              isEditing={editingId === issue.id && !showTrash}
-              isSelected={selectedIssueId === issue.id}
-              showTrash={showTrash}
-              tab={tab}
-              form={form}
-              setForm={setForm}
-              onSaveEdit={onSaveEdit}
-              onCancelEdit={onCancelEdit}
-              onStartEdit={onStartEdit}
-              onArchive={onArchive}
-              onRestore={onRestore}
-              onHardDelete={onHardDelete}
-              onChangeStatus={onChangeStatus}
-              onSelectIssue={onSelectIssue}
-              savingIssue={savingIssue}
-              statusOptions={statusOptions}
-              formatStatus={formatStatus}
-              statusBadgeStyle={statusBadgeStyle}
-              formatType={formatType}
-              typeBadgeStyle={typeBadgeStyle}
-              canEdit={canCreateOrEdit}
-              canHardDelete={canHardDelete}
-            />
-          ))}
+          {visibleIssues.map((issue) => {
+            const isEditing = activeEditingId === issue.id && !showTrash;
+            const isSelected = selectedIssueId === issue.id;
+
+            return (
+              <IssueCard
+                key={issue.id}
+                issue={issue}
+                isEditing={isEditing}
+                isSelected={isSelected}
+                showTrash={showTrash}
+                tab={tab}
+                form={form}
+                setForm={setForm}
+                onSaveEdit={onSaveEdit}
+                onCancelEdit={onCancelEdit}
+                onStartEdit={onStartEdit}
+                onArchive={onArchive}
+                onRestore={onRestore}
+                onHardDelete={onHardDelete}
+                onChangeStatus={onChangeStatus}
+                onSelectIssue={onSelectIssue}
+                savingIssue={savingIssue}
+                statusOptions={statusOptions}
+                formatStatus={formatStatus}
+                statusBadgeStyle={statusBadgeStyle}
+                formatType={formatType}
+                typeBadgeStyle={typeBadgeStyle}
+                canEdit={canCreateOrEdit && !isInteractionLocked}
+                canHardDelete={canHardDelete && !isInteractionLocked}
+              />
+            );
+          })}
         </div>
       )}
     </div>

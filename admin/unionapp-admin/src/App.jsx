@@ -76,6 +76,7 @@ export default function App() {
   const { confirmState, askConfirm, closeConfirm, handleConfirm } = useConfirm();
 
   const tabTitle = tab === "public" ? "공개 안건" : "내부 안건";
+  const isBusy = savingIssue || reordering;
 
   const pushToast = useCallback((message, type = "info", duration = 2500) => {
     const id = `${Date.now()}_${Math.random()}`;
@@ -88,6 +89,7 @@ export default function App() {
 
   async function handleLogin(e) {
     e.preventDefault();
+
     try {
       await login(email, pw);
       pushToast("로그인 성공", "success");
@@ -100,6 +102,8 @@ export default function App() {
   async function handleLogout() {
     try {
       await logout();
+      setEmail("");
+      setPw("");
       pushToast("로그아웃 완료", "info");
     } catch (err) {
       console.log("LOGOUT ERROR:", err.code, err.message);
@@ -125,7 +129,7 @@ export default function App() {
           pushToast("안건이 보관됨", "success");
         } catch (err) {
           console.log("ARCHIVE ERROR:", err.code, err.message);
-          pushToast(`보관 실패: ${err.code}`, "error");
+          pushToast(`보관 실패: ${err.code || err.message || "unknown"}`, "error");
         }
       },
     });
@@ -143,7 +147,7 @@ export default function App() {
           pushToast("안건 복구 완료", "success");
         } catch (err) {
           console.log("RESTORE ERROR:", err.code, err.message);
-          pushToast(`복구 실패: ${err.code}`, "error");
+          pushToast(`복구 실패: ${err.code || err.message || "unknown"}`, "error");
         }
       },
     });
@@ -159,10 +163,16 @@ export default function App() {
       onConfirm: async () => {
         try {
           await hardDeleteIssue(id);
+
+          if (selectedIssueId === id) {
+            setSelectedIssueId(null);
+            setStats({ yes: 0, no: 0, hold: 0, total: 0 });
+          }
+
           pushToast("영구 삭제 완료", "warning");
         } catch (err) {
           console.log("HARD DELETE ERROR:", err.code, err.message);
-          pushToast(`영구 삭제 실패: ${err.code}`, "error");
+          pushToast(`영구 삭제 실패: ${err.code || err.message || "unknown"}`, "error");
         }
       },
     });
@@ -182,7 +192,7 @@ export default function App() {
           pushToast("순서 재정렬 완료", "success");
         } catch (err) {
           console.log("REORDER ERROR:", err.code, err.message);
-          pushToast(`순서 재정렬 실패: ${err.code}`, "error");
+          pushToast(`순서 재정렬 실패: ${err.code || err.message || "unknown"}`, "error");
         }
       },
     });
@@ -193,6 +203,7 @@ export default function App() {
       await saveEdit();
       pushToast("안건 저장 완료", "success");
     } catch (err) {
+      console.log("SAVE EDIT ERROR:", err?.code, err?.message);
       pushToast(err?.message || "안건 저장 실패", "error");
     }
   }
@@ -202,6 +213,7 @@ export default function App() {
       await saveNewIssue();
       pushToast("새 안건 추가 완료", "success");
     } catch (err) {
+      console.log("SAVE NEW ISSUE ERROR:", err?.code, err?.message);
       pushToast(err?.message || "안건 추가 실패", "error");
     }
   }
@@ -210,12 +222,19 @@ export default function App() {
     try {
       await handleChangeIssueStatus(id, nextStatus);
       pushToast("상태 변경 완료", "success");
-    } catch {
-      pushToast("상태 변경 실패", "error");
+    } catch (err) {
+      console.log("STATUS CHANGE ERROR:", err?.code, err?.message);
+      pushToast(err?.message || "상태 변경 실패", "error");
     }
   }
 
-  if (authLoading) return <div style={ui.statusPage}><h2>로그인 상태 확인 중...</h2></div>;
+  if (authLoading) {
+    return (
+      <div style={ui.statusPage}>
+        <h2>로그인 상태 확인 중...</h2>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -244,7 +263,13 @@ export default function App() {
     );
   }
 
-  if (adminOK === null) return <div style={ui.statusPage}><h2>관리자 권한 확인 중...</h2></div>;
+  if (adminOK === null) {
+    return (
+      <div style={ui.statusPage}>
+        <h2>관리자 권한 확인 중...</h2>
+      </div>
+    );
+  }
 
   if (adminOK === false) {
     return (
@@ -265,28 +290,53 @@ export default function App() {
         <h2>unionapp 관리자</h2>
         <div style={ui.uidText}>UID: {user.uid}</div>
         <div style={ui.metaText}>
-          관리자: {adminDoc?.displayName || adminDoc?.name || "(이름 없음)"} / role: {adminDoc?.role || "?"}
+          관리자: {adminDoc?.displayName || adminDoc?.name || "(이름 없음)"} / role:{" "}
+          {adminDoc?.role || "?"}
         </div>
 
         <div style={ui.toolbar}>
-          <button onClick={handleLogout}>로그아웃</button>
+          <button onClick={handleLogout} disabled={isBusy}>
+            로그아웃
+          </button>
 
           {isEditor && (
             <>
-              <button onClick={() => startCreate("public")}>+ 공개 안건 추가</button>
-              <button onClick={handleNormalizeIssueOrders} disabled={reordering || visibleIssues.length === 0}>
-                {reordering ? "순서 정리 중..." : `${tab === "public" ? "공개" : "내부"} 순서 정리`}
+              <button
+                onClick={() => startCreate("public")}
+                disabled={isBusy || showTrash}
+              >
+                + 공개 안건 추가
+              </button>
+
+              <button
+                onClick={() => startCreate("private")}
+                disabled={isBusy || showTrash}
+              >
+                + 내부 안건 추가
+              </button>
+
+              <button
+                onClick={handleNormalizeIssueOrders}
+                disabled={isBusy || visibleIssues.length === 0}
+              >
+                {reordering
+                  ? "순서 정리 중..."
+                  : `${tab === "public" ? "공개" : "내부"} 순서 정리`}
               </button>
             </>
           )}
 
-          <button onClick={() => setShowTrash((p) => !p)}>
+          <button
+            onClick={() => setShowTrash((p) => !p)}
+            disabled={isBusy}
+          >
             {showTrash ? "기본 목록 보기" : "보관함 보기"}
           </button>
 
           <div style={ui.tabGroup}>
             <button
               onClick={() => setTab("public")}
+              disabled={isBusy}
               style={{
                 fontWeight: tab === "public" ? 800 : 400,
                 opacity: tab === "public" ? 1 : 0.6,
@@ -298,6 +348,7 @@ export default function App() {
             {isEditor && (
               <button
                 onClick={() => setTab("private")}
+                disabled={isBusy}
                 style={{
                   fontWeight: tab === "private" ? 800 : 400,
                   opacity: tab === "private" ? 1 : 0.6,
@@ -315,12 +366,14 @@ export default function App() {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={ui.input}
+            disabled={isBusy}
           />
 
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             style={ui.input}
+            disabled={isBusy}
           >
             <option value="all">모든 상태</option>
             {STATUS_OPTIONS.map((opt) => (
@@ -330,7 +383,14 @@ export default function App() {
             ))}
           </select>
 
-          <div style={{ display: "flex", alignItems: "center", fontWeight: 700, color: "#334155" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              fontWeight: 700,
+              color: "#334155",
+            }}
+          >
             {showTrash ? "보관함 모드" : `${tabTitle} 목록`}
           </div>
         </div>
