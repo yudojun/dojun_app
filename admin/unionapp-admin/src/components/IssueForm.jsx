@@ -5,7 +5,10 @@ import {
   TYPE_OPTIONS,
   RESULT_VISIBILITY_OPTIONS,
 } from "../hooks/useIssues";
-import { uploadIssueImage } from "../services/storageService";
+import {
+  uploadIssueImage,
+  deleteIssueImageByUrl,
+} from "../services/storageService";
 
 function toNumberOrEmpty(value) {
   if (value === "") return "";
@@ -136,6 +139,16 @@ export default function IssueForm({
 
     try {
       setUploadingImage(true);
+
+      // 기존 Firebase Storage 이미지가 있으면 먼저 삭제
+      if (form.imageUrl) {
+        try {
+          await deleteIssueImageByUrl(form.imageUrl);
+        } catch (deleteErr) {
+          console.error("OLD IMAGE DELETE ERROR:", deleteErr);
+        }
+      }
+
       const url = await uploadIssueImage(file, isCreate ? "temp" : "edit");
 
       setForm((prev) => ({
@@ -151,14 +164,28 @@ export default function IssueForm({
     }
   };
 
-  const handleRemoveImage = () => {
-    setForm((prev) => ({
-      ...prev,
-      imageUrl: "",
-    }));
+  const handleRemoveImage = async () => {
+    if (!form.imageUrl) return;
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    try {
+      setUploadingImage(true);
+
+      try {
+        await deleteIssueImageByUrl(form.imageUrl);
+      } catch (err) {
+        console.error("IMAGE DELETE ERROR:", err);
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        imageUrl: "",
+      }));
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -271,51 +298,49 @@ export default function IssueForm({
 
                 {uploadingImage && (
                   <div style={{ color: "#2563eb", fontSize: 13 }}>
-                    이미지 업로드 중...
+                    이미지 처리 중...
                   </div>
                 )}
 
                 {form.imageUrl && (
-                  <>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      <img
-                        src={form.imageUrl}
-                        alt="공지 이미지 미리보기"
-                        style={{
-                          maxWidth: "100%",
-                          maxHeight: 240,
-                          objectFit: "cover",
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                        }}
-                      />
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <img
+                      src={form.imageUrl}
+                      alt="공지 이미지 미리보기"
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: 240,
+                        objectFit: "cover",
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                      }}
+                    />
 
-                      <input
-                        value={form.imageUrl}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, imageUrl: e.target.value }))
-                        }
-                        placeholder="https://..."
-                        style={ui.input}
+                    <input
+                      value={form.imageUrl}
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, imageUrl: e.target.value }))
+                      }
+                      placeholder="https://..."
+                      style={ui.input}
+                      disabled={saving || uploadingImage}
+                    />
+
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
                         disabled={saving || uploadingImage}
-                      />
-
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                          type="button"
-                          onClick={handleRemoveImage}
-                          disabled={saving || uploadingImage}
-                        >
-                          이미지 제거
-                        </button>
-                      </div>
+                      >
+                        이미지 제거
+                      </button>
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {!form.imageUrl && !uploadingImage && (
                   <div style={{ color: "#64748b", fontSize: 13 }}>
-                    이미지를 선택하면 자동으로 업로드되고 URL이 저장돼.
+                    이미지를 선택하면 자동 업로드되고, 제거하면 Storage 파일도 같이 삭제돼.
                   </div>
                 )}
               </div>
@@ -587,7 +612,7 @@ export default function IssueForm({
 
       <div style={ui.formActions}>
         <button onClick={handleSave} disabled={!canSave}>
-          {saving ? "저장 중..." : uploadingImage ? "이미지 업로드 중..." : isCreate ? "추가 저장" : "저장"}
+          {saving ? "저장 중..." : uploadingImage ? "이미지 처리 중..." : isCreate ? "추가 저장" : "저장"}
         </button>
         <button onClick={onCancel} disabled={saving || uploadingImage}>
           취소

@@ -425,6 +425,16 @@ export default function useIssues({ enabled, actorUid }) {
     validateForm(form);
     const payload = normalizePayloadFromForm(form, tab);
 
+    console.log("SAVE EDIT PAYLOAD RAW:", payload);
+    console.log("SAVE EDIT PAYLOAD ENTRIES:");
+    Object.entries(payload).forEach(([key, value]) => {
+      console.log(
+        key,
+        value,
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+      );
+    });
+
     try {
       setSavingIssue(true);
       await updateIssue(tab, editingId, payload, actorUid);
@@ -440,6 +450,16 @@ export default function useIssues({ enabled, actorUid }) {
 
     validateForm(form);
     const payload = normalizePayloadFromForm(form, createTargetTab || tab);
+
+    console.log("SAVE NEW PAYLOAD RAW:", payload);
+    console.log("SAVE NEW PAYLOAD ENTRIES:");
+    Object.entries(payload).forEach(([key, value]) => {
+      console.log(
+        key,
+        value,
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+      );
+    });
 
     try {
       setSavingIssue(true);
@@ -465,7 +485,7 @@ export default function useIssues({ enabled, actorUid }) {
 
     try {
       setReordering(true);
-      await reorderIssues(tab, visibleIssues);
+      await reorderIssues(tab, visibleIssues, actorUid);
     } finally {
       setReordering(false);
     }

@@ -158,27 +158,47 @@ async function syncVoteDocForPublicIssue(tab, issueId, payload, actorUid) {
   const voteRef = getVoteRef(issueId);
 
   if (!isVoteLikeType(payload.type)) {
-    await deleteDoc(voteRef);
+    const voteSnap = await getDoc(voteRef);
+    console.log("SYNC VOTE: notice/sync skip check, vote exists =", voteSnap.exists());
+
+    if (voteSnap.exists()) {
+      console.log("SYNC VOTE: 기존 votes 문서 삭제 시도");
+      await deleteDoc(voteRef);
+      console.log("SYNC VOTE: 기존 votes 문서 삭제 성공");
+    }
     return;
   }
 
   const voteSnap = await getDoc(voteRef);
+  console.log("SYNC VOTE: vote-like type =", payload.type, "exists =", voteSnap.exists());
 
   if (!voteSnap.exists()) {
+    console.log("SYNC VOTE: votes 문서 생성 시도");
     await setDoc(voteRef, buildVoteMeta(issueId, payload, actorUid));
+    console.log("SYNC VOTE: votes 문서 생성 성공");
     return;
   }
 
+  console.log("SYNC VOTE: votes 문서 업데이트 시도");
   await updateDoc(voteRef, buildVoteMetaPatch(payload, actorUid));
+  console.log("SYNC VOTE: votes 문서 업데이트 성공");
 }
 
 export async function createIssue(tab, payload, actorUid) {
   const col = getIssueCollection(tab);
+  const finalPayload = buildIssuePayload(payload, actorUid);
 
-  const issueRef = await addDoc(
-    collection(db, col),
-    buildIssuePayload(payload, actorUid)
-  );
+  console.log("CREATE ISSUE FINAL PAYLOAD:", finalPayload);
+  Object.entries(finalPayload).forEach(([key, value]) => {
+    console.log(
+      "CREATE ISSUE FIELD:",
+      key,
+      value,
+      value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+    );
+  });
+
+  const issueRef = await addDoc(collection(db, col), finalPayload);
 
   await syncVoteDocForPublicIssue(tab, issueRef.id, payload, actorUid);
 
@@ -187,11 +207,26 @@ export async function createIssue(tab, payload, actorUid) {
 
 export async function updateIssue(tab, issueId, payload, actorUid) {
   const issueRef = getIssueRef(tab, issueId);
+  const issuePatch = buildIssuePatch(payload, actorUid);
 
-  await updateDoc(issueRef, buildIssuePatch(payload, actorUid));
+  console.log("UPDATE ISSUE FINAL PATCH:", issuePatch);
+  Object.entries(issuePatch).forEach(([key, value]) => {
+    console.log(
+      "UPDATE ISSUE FIELD:",
+      key,
+      value,
+      value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+    );
+  });
+
+  console.log("STEP 1: issues_public update 시작");
+  await updateDoc(issueRef, issuePatch);
+  console.log("STEP 1: issues_public update 성공");
+
+  console.log("STEP 2: syncVoteDocForPublicIssue 시작");
   await syncVoteDocForPublicIssue(tab, issueId, payload, actorUid);
+  console.log("STEP 2: syncVoteDocForPublicIssue 성공");
 }
-
 export async function archiveIssue(tab, issueId, actorUid) {
   const issueRef = getIssueRef(tab, issueId);
   const snap = await getDoc(issueRef);

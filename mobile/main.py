@@ -3,6 +3,7 @@ import json
 import requests
 import time
 import threading
+import webbrowser
 
 from kivy.core.text import LabelBase
 from kivy.lang import Builder
@@ -18,49 +19,40 @@ from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel, MDIcon
 from kivymd.uix.card import MDCard
 from kivymd.uix.tab import MDTabsBase
-from kivymd.uix.button import MDIconButton, MDFlatButton
+from kivymd.uix.button import MDIconButton, MDFlatButton, MDRaisedButton
 from kivymd.uix.menu import MDDropdownMenu
 from kivymd.toast import toast
-from kivymd.uix.label import MDLabel
 from kivymd.uix.snackbar import MDSnackbar
-from kivymd.uix.button import MDRaisedButton
 from kivymd.uix.progressbar import MDProgressBar
 from kivy.uix.image import AsyncImage
 from kivy.clock import Clock
-from mobile.api_client import fetch_public_issues
-from mobile.firestore_client import fetch_remote_version
-from mobile.firestore_client import fetch_vote_summary
-from dotenv import load_dotenv
 
-load_dotenv("firebase/.env")
+try:
+    from api_client import fetch_public_issues
+    from firestore_client import (
+        fetch_remote_version,
+        fetch_version_meta,
+        fetch_vote_summary,
+    )
+except ModuleNotFoundError:
+    from mobile.api_client import fetch_public_issues
+    from mobile.firestore_client import (
+        fetch_remote_version,
+        fetch_version_meta,
+        fetch_vote_summary,
+    )
 
-API_KEY = os.getenv("API_KEY")
-PROJECT_ID = os.getenv("PROJECT_ID")
+APP_VERSION = "1.0.0"
+UPDATE_URL = "https://example.com/update"
 
+PROJECT_ID = "unionapp-27bbd"
 FIRESTORE_PROJECT_ID = "unionapp-27bbd"
-ISSUES_COLLECTION = "issues"
+ISSUES_COLLECTION = "issues_public"
 
-LOCAL_ISSUES = [
-    {
-        "id": "local_1",
-        "type": "vote",
-        "status": "open",
-        "title": "회사행사 유지",
-        "summary": "5월 추진되는 회사 행사 관련 협의",
-        "company": "빠른시일내 협의완료",
-        "union": "회사측에서 먼저 대안 제시",
-    },
-    {
-        "id": "local_2",
-        "type": "notice",
-        "status": "open",
-        "title": "노조 창립기념일 휴무관련",
-        "summary": "휴무 운영 관련 공지입니다.",
-        "company": "",
-        "union": "",
-        "imageUrl": "sample_notice_image",
-    },
-]
+API_KEY = "AIzaSyDPUVFGs43GqTEpFE2wigA3dNIsrBcn3M4"
+
+LOCAL_ISSUES = []
+
 # =============================
 # Desktop 개발용 창 크기 고정
 # =============================
@@ -123,6 +115,32 @@ def save_local_version(version):
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"version": int(version)}, f)
 
+def parse_version_tuple(version_str: str):
+    text = str(version_str or "0.0.0").strip()
+    parts = text.split(".")
+    nums = []
+    for part in parts:
+        try:
+            nums.append(int(part))
+        except Exception:
+            nums.append(0)
+
+    while len(nums) < 3:
+        nums.append(0)
+
+    return tuple(nums[:3])
+
+
+def compare_versions(a: str, b: str) -> int:
+    va = parse_version_tuple(a)
+    vb = parse_version_tuple(b)
+
+    if va < vb:
+        return -1
+    if va > vb:
+        return 1
+    return 0
+
 
 def check_update_available():
     local_v = get_local_version()
@@ -131,50 +149,157 @@ def check_update_available():
 
 
 def get_filtered_issues(tab="전체"):
-    rows = LOCAL_ISSUES
+    rows = LOCAL_ISSUES or []
 
-    filtered = []
+    normalized = []
     for row in rows:
-        issue_type = (row.get("type") or "vote").strip().lower()
-
-        if tab == "공지" and issue_type != "notice":
-            continue
-        if tab == "투표" and issue_type != "vote":
-            continue
-        if tab == "설문" and issue_type != "survey":
-            continue
-
-        filtered.append(row)
-
-    app = MDApp.get_running_app()
-    mode = getattr(app, "sort_mode", "최신순")
-
-    if mode == "최신순":
-        filtered.sort(
-            key=lambda r: (r.get("updated_at", ""), r.get("order", 0)),
-            reverse=True,
+        issue = normalize_issue(row)
+        print(
+            "FILTER CHECK |",
+            "id:", issue.get("id"),
+            "| type:", issue.get("type"),
+            "| status:", issue.get("status"),
+            "| active:", issue.get("active"),
+            "| tab:", tab,
         )
-    elif mode == "오래된순":
-        filtered.sort(
-            key=lambda r: (r.get("updated_at", ""), r.get("order", 0)),
-            reverse=False,
-        )
-    elif mode == "가나다순":
-        filtered.sort(key=lambda r: (r.get("title") or ""))
 
-    return [
-        (
-            r.get("id"),
-            r.get("title"),
-            r.get("summary"),
-            r.get("company"),
-            r.get("union"),
-            r.get("type", "vote"),
-            r.get("status", "open"),
-            r.get("imageUrl", ""),
-        )
-        for r in filtered
-    ]
+        if should_display_issue(issue, tab):
+            normalized.append(issue)
+
+    normalized.sort(key=sort_issue_key)
+
+    print("FILTERED COUNT:", len(normalized), "| TAB:", tab)
+    return normalized
+
+
+def normalize_issue(row: dict) -> dict:
+    row = dict(row or {})
+
+    created_at = (
+        row.get("createdAt")
+        or row.get("created_at")
+        or row.get("updatedAt")
+        or row.get("updated_at")
+        or row.get("startAt")
+        or ""
+    )
+
+    updated_at = (
+        row.get("updatedAt")
+        or row.get("updated_at")
+        or row.get("createdAt")
+        or row.get("created_at")
+        or ""
+    )
+
+    issue_type = str(row.get("type") or "notice").strip().lower()
+    status = str(row.get("status") or "draft").strip().lower()
+
+    try:
+        order_value = int(row.get("order", 999999) or 999999)
+    except Exception:
+        order_value = 999999
+
+    try:
+        max_selections = int(row.get("maxSelections", 1) or 1)
+    except Exception:
+        max_selections = 1
+
+    raw_active = row.get("active", None)
+    if isinstance(raw_active, bool):
+        active_value = raw_active
+    elif isinstance(raw_active, str):
+        active_value = raw_active.strip().lower() in ("true", "1", "yes", "y")
+    elif isinstance(raw_active, (int, float)):
+        active_value = raw_active != 0
+    else:
+        # active 필드가 없으면 일단 공개 데이터로 간주
+        active_value = True
+
+    raw_pinned = row.get("isPinned", False)
+    if isinstance(raw_pinned, bool):
+        pinned_value = raw_pinned
+    elif isinstance(raw_pinned, str):
+        pinned_value = raw_pinned.strip().lower() in ("true", "1", "yes", "y")
+    elif isinstance(raw_pinned, (int, float)):
+        pinned_value = raw_pinned != 0
+    else:
+        pinned_value = False
+
+    return {
+        "id": row.get("id") or row.get("docId") or "",
+        "type": issue_type,
+        "status": status,
+        "title": str(row.get("title") or "").strip(),
+        "summary": str(row.get("summary") or "").strip(),
+        "content": str(row.get("content") or "").strip(),
+        "category": str(row.get("category") or "").strip(),
+        "scope": str(row.get("scope") or "").strip(),
+        "company": str(row.get("company") or "").strip(),
+        "union": str(row.get("union") or "").strip(),
+        "resultVisibility": str(row.get("resultVisibility") or "public").strip().lower(),
+        "imageUrl": str(row.get("imageUrl") or "").strip(),
+        "options": list(row.get("options") or row.get("option") or []),
+        "multiple": bool(row.get("multiple", False)),
+        "maxSelections": max_selections,
+        "active": active_value,
+        "isPinned": pinned_value,
+        "order": order_value,
+        "startAt": row.get("startAt") or "",
+        "endAt": row.get("endAt") or "",
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
+
+
+def should_display_issue(issue: dict, tab: str = "전체") -> bool:
+    if not issue:
+        return False
+
+    issue_id = str(issue.get("id") or "").strip()
+    if not issue_id:
+        return False
+
+    issue_type = str(issue.get("type", "notice")).strip().lower()
+    status = str(issue.get("status", "draft")).strip().lower()
+    active = issue.get("active", True)
+
+    # active가 명시적으로 False일 때만 숨김
+    if active is False:
+        return False
+
+    if issue_type == "notice":
+        visible = status in ("open", "closed")
+    elif issue_type in ("vote", "survey"):
+        visible = status == "open"
+    else:
+        visible = False
+
+    if not visible:
+        return False
+
+    if tab == "공지":
+        return issue_type == "notice"
+    if tab == "투표":
+        return issue_type == "vote"
+    if tab == "설문":
+        return issue_type == "survey"
+
+    return True
+
+
+def sort_issue_key(issue: dict):
+    is_pinned = 1 if issue.get("isPinned") else 0
+
+    try:
+        order_value = int(issue.get("order", 999999) or 999999)
+    except Exception:
+        order_value = 999999
+
+    created_at = issue.get("createdAt") or issue.get("updatedAt") or ""
+
+    # ISO 문자열이면 문자열 정렬로도 시간순 정렬이 가능
+    return (-is_pinned, order_value, created_at)
 
 
 # =============================
@@ -200,6 +325,12 @@ class ExpandableIssueCard(MDCard):
         issue_type="vote",
         status="open",
         image_url="",
+        content="",
+        options=None,
+        multiple=False,
+        max_selections=1,
+        created_at="",
+        is_pinned=False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -214,13 +345,19 @@ class ExpandableIssueCard(MDCard):
         self.issue_type = issue_type
         self.status = status
         self.image_url = image_url or ""
+        self.content_text = content or ""
+        self.options = list(options or [])
+        self.multiple = bool(multiple)
+        self.max_selections = int(max_selections or 1)
+        self.created_at = created_at or ""
+        self.is_pinned = bool(is_pinned)
 
         # ---- 카드 기본 외형 ----
         self.orientation = "vertical"
         self.padding = (dp(18), dp(16))
-        self.spacing = dp(12)
+        self.spacing = dp(10)
         self.radius = [18]
-        self.elevation = 1
+        self.elevation = 2
         self.size_hint_y = None
         self.md_bg_color = (1, 1, 1, 1)
         self.bind(minimum_height=self.setter("height"))
@@ -232,12 +369,11 @@ class ExpandableIssueCard(MDCard):
         # =========================
         header_box = MDBoxLayout(
             orientation="vertical",
-            spacing=dp(4),
+            spacing=dp(6),
             size_hint_y=None,
         )
         header_box.bind(minimum_height=header_box.setter("height"))
 
-        # ---------- 1줄 (아이콘 + 제목 + 화살표) ----------
         top_row = MDBoxLayout(
             orientation="horizontal",
             size_hint_y=None,
@@ -245,10 +381,16 @@ class ExpandableIssueCard(MDCard):
             spacing=dp(8),
         )
 
+        icon_name = {
+            "notice": "bullhorn-outline",
+            "vote": "check-decagram-outline",
+            "survey": "clipboard-text-outline",
+        }.get(self.issue_type, "file-document-outline")
+
         icon = MDIcon(
-            icon="file-document-outline",
+            icon=icon_name,
             theme_text_color="Custom",
-            text_color=(0.13, 0.58, 0.92, 1),
+            text_color=self._type_color(),
             size_hint_x=None,
             width=dp(22),
         )
@@ -276,112 +418,101 @@ class ExpandableIssueCard(MDCard):
         top_row.add_widget(self.title_lbl)
         top_row.add_widget(self.chev)
 
-        type_map = {
-            "notice": "공지",
-            "vote": "투표",
-            "survey": "설문",
-        }
-        status_map = {
-            "draft": "준비중",
-            "review": "검토중",
-            "open": "진행중",
-            "closed": "종료",
-            "archived": "보관",
-        }
+        meta_text = f"{self.issue_type.upper()} · {self._status_text()}"
+        if self.issue_type == "notice":
+            meta_text = f"공지 · {self._status_text()}"
+        elif self.issue_type == "vote":
+            meta_text = f"투표 · {self._status_text()}"
+        elif self.issue_type == "survey":
+            meta_text = f"설문 · {self._status_text()}"
 
-        status_color_map = {
-            "draft": (0.45, 0.45, 0.45, 1),  # 회색
-            "review": (0.82, 0.56, 0.12, 1),  # 주황
-            "open": (0.18, 0.65, 0.28, 1),  # 초록
-            "closed": (0.85, 0.20, 0.20, 1),  # 빨강
-            "archived": (0.40, 0.40, 0.40, 1),  # 진회색
-        }
-
-        meta_row = MDBoxLayout(
-            orientation="horizontal",
-            spacing=dp(4),
-            size_hint_y=None,
-            height=dp(18),
-        )
-
-        self.type_label = MDLabel(
-            text=type_map.get(self.issue_type, "안건"),
-            font_name="Nanum",
-            font_size="12sp",
-            theme_text_color="Secondary",
-            halign="left",
-            size_hint_x=None,
-            width=dp(34),
-        )
-
-        self.dot_label = MDLabel(
-            text="·",
-            font_name="Nanum",
-            font_size="12sp",
-            theme_text_color="Secondary",
-            halign="center",
-            size_hint_x=None,
-            width=dp(10),
-        )
-
-        self.status_label = MDLabel(
-            text=status_map.get(self.status, "진행중"),
+        meta_label = MDLabel(
+            text=meta_text,
             font_name="Nanum",
             font_size="12sp",
             theme_text_color="Custom",
-            text_color=status_color_map.get(self.status, (0.35, 0.35, 0.35, 1)),
-            halign="left",
-        )
-
-        meta_row.add_widget(self.type_label)
-        meta_row.add_widget(self.dot_label)
-        meta_row.add_widget(self.status_label)
-
-        # ---------- 2줄 (투표 현황) ----------
-        self.badge = MDLabel(
-            text="…",
-            font_name="Nanum",
-            font_size="11sp",
-            theme_text_color="Custom",
-            text_color=(0.45, 0.45, 0.45, 1),
-            halign="left",
+            text_color=self._status_color(),
             size_hint_y=None,
             height=dp(18),
-            opacity=0.95,
-            shorten=True,
-            shorten_from="right",
-        )
-
-        # -----------참여자수 추가-------------
-
-        self.participant_label = MDLabel(
-            text="👥 참여 0명",
-            font_name="Nanum",
-            font_size="11sp",
-            theme_text_color="Custom",
-            text_color=(0.45, 0.45, 0.45, 1),
-            halign="left",
-            size_hint_y=None,
-            height=dp(18),
-            opacity=0.95,
         )
 
         header_box.add_widget(top_row)
-        header_box.add_widget(meta_row)
+        header_box.add_widget(meta_label)
+
+        if self.is_pinned:
+            pin_label = MDLabel(
+                text="📌 중요 공지" if self.issue_type == "notice" else "📌 상단 고정",
+                font_name="Nanum",
+                font_size="12sp",
+                bold=True,
+                theme_text_color="Custom",
+                text_color=(0.85, 0.45, 0.1, 1),
+                size_hint_y=None,
+                height=dp(18),
+            )
+            header_box.add_widget(pin_label)
 
         if self.issue_type == "notice":
             self.notice_preview = self._build_notice_preview()
             header_box.add_widget(self.notice_preview)
         else:
+            options_text = ""
+            if self.options:
+                shown = [str(x) for x in self.options[:3]]
+                options_text = " / ".join(shown)
+                if len(self.options) > 3:
+                    options_text += f" 외 {len(self.options) - 3}개"
+            else:
+                options_text = "선택 항목 정보 없음"
+
+            self.option_preview_label = MDLabel(
+                text=options_text,
+                font_name="Nanum",
+                font_size="12sp",
+                theme_text_color="Secondary",
+                size_hint_y=None,
+                height=dp(18),
+                shorten=True,
+                shorten_from="right",
+            )
+
+            self.badge = MDLabel(
+                text="…",
+                font_name="Nanum",
+                font_size="11sp",
+                theme_text_color="Custom",
+                text_color=(0.45, 0.45, 0.45, 1),
+                halign="left",
+                size_hint_y=None,
+                height=dp(18),
+                opacity=0.95,
+                shorten=True,
+                shorten_from="right",
+            )
+
+            self.participant_label = MDLabel(
+                text="👥 참여 0명",
+                font_name="Nanum",
+                font_size="11sp",
+                theme_text_color="Custom",
+                text_color=(0.45, 0.45, 0.45, 1),
+                halign="left",
+                size_hint_y=None,
+                height=dp(18),
+                opacity=0.95,
+            )
+
+            header_box.add_widget(self.option_preview_label)
             header_box.add_widget(self.badge)
             header_box.add_widget(self.participant_label)
+
         self.add_widget(header_box)
 
         # 구분선
         self.divider = MDBoxLayout(
             size_hint_y=None,
             height=dp(1),
-            md_bg_color=(0.88, 0.90, 0.93, 1),
+            md_bg_color=(0.90, 0.92, 0.95, 1),
             opacity=0,
         )
         self.add_widget(self.divider)
@@ -411,7 +542,9 @@ class ExpandableIssueCard(MDCard):
         )
 
         if self.issue_type == "notice":
-            self.content.add_widget(self._section("공지 내용", self.summary or "(내용 없음)"))
+            self.content.add_widget(
+                self._section("공지 내용", self.summary or "(내용 없음)")
+            )
         else:
             self.content.add_widget(self._section("회의 요약", self.summary))
 
@@ -437,16 +570,24 @@ class ExpandableIssueCard(MDCard):
             text="자세히 보기",
             font_name="Nanum",
             theme_text_color="Custom",
-            text_color=(0.13, 0.58, 0.92, 1),
+            text_color=self._type_color(),
         )
-
         def _go_detail(*args):
             issue = {
                 "id": self.issue_id,
                 "title": self.title,
                 "summary": self.summary,
+                "content": self.content_text,
                 "company": self.company,
                 "union": self.union,
+                "type": self.issue_type,
+                "status": self.status,
+                "imageUrl": self.image_url,
+                "options": self.options,
+                "multiple": self.multiple,
+                "maxSelections": self.max_selections,
+                "createdAt": self.created_at,
+                "isPinned": self.is_pinned,
             }
             MDApp.get_running_app().open_detail(issue)
 
@@ -467,6 +608,31 @@ class ExpandableIssueCard(MDCard):
             self.height = self._collapsed_height
 
         Clock.schedule_once(_set_collapsed_height, 0)
+
+    def _type_color(self):
+        return {
+            "notice": (0.13, 0.58, 0.92, 1),
+            "vote": (0.18, 0.65, 0.28, 1),
+            "survey": (0.48, 0.34, 0.84, 1),
+        }.get(self.issue_type, (0.35, 0.35, 0.35, 1))
+
+    def _status_text(self):
+        return {
+            "draft": "준비중",
+            "review": "검토중",
+            "open": "진행중",
+            "closed": "종료",
+            "archived": "보관",
+        }.get(self.status, "진행중")
+
+    def _status_color(self):
+        return {
+            "draft": (0.45, 0.45, 0.45, 1),
+            "review": (0.82, 0.56, 0.12, 1),
+            "open": (0.18, 0.65, 0.28, 1),
+            "closed": (0.85, 0.20, 0.20, 1),
+            "archived": (0.40, 0.40, 0.40, 1),
+        }.get(self.status, (0.35, 0.35, 0.35, 1))
 
     def _section(self, title, body):
         box = MDBoxLayout(
@@ -498,7 +664,7 @@ class ExpandableIssueCard(MDCard):
         body_label = MDLabel(
             text=f"• {body.strip()}" if body else "• (내용 없음)",
             font_name="Nanum",
-            font_size="15sp",
+            font_size="14sp",
             theme_text_color="Primary",
             size_hint_y=None,
             halign="left",
@@ -589,7 +755,10 @@ class ExpandableIssueCard(MDCard):
             total = int(summary.get("total", 0) or 0)
 
             if options:
-                parts = [f"{item.get('label', '항목')} {item.get('count', 0)}" for item in options]
+                parts = [
+                    f"{item.get('label', '항목')} {item.get('count', 0)}"
+                    for item in options
+                ]
                 self.badge.text = " | ".join(parts)
             else:
                 yes = int(summary.get("yes", 0) or 0)
@@ -610,12 +779,12 @@ class ExpandableIssueCard(MDCard):
     def _build_notice_preview(self):
         box = MDBoxLayout(
             orientation="vertical",
-            spacing=dp(6),
+            spacing=dp(4),
             size_hint_y=None,
         )
         box.bind(minimum_height=box.setter("height"))
 
-        summary_text = (self.summary or "공지 내용이 없습니다.").strip()
+        summary_text = (self.summary or self.content_text or "공지 내용이 없습니다.").strip()
 
         summary_label = MDLabel(
             text=summary_text,
@@ -641,17 +810,23 @@ class ExpandableIssueCard(MDCard):
 
         box.add_widget(summary_label)
 
+        info_text = ""
         if self.image_url:
-            image_hint = MDLabel(
-                text="🖼 이미지 있음",
-                font_name="Nanum",
-                font_size="12sp",
-                theme_text_color="Custom",
-                text_color=(0.13, 0.58, 0.92, 1),
-                size_hint_y=None,
-                height=dp(18),
+            info_text = "🖼 이미지 포함"
+        elif self.created_at:
+            info_text = str(self.created_at).replace("T", " ").replace("Z", "")[:16]
+
+        if info_text:
+            box.add_widget(
+                MDLabel(
+                    text=info_text,
+                    font_name="Nanum",
+                    font_size="11sp",
+                    theme_text_color="Secondary",
+                    size_hint_y=None,
+                    height=dp(18),
+                )
             )
-            box.add_widget(image_hint)
 
         return box
 
@@ -708,46 +883,50 @@ class MainScreen(MDScreen):
 
         issues = get_filtered_issues(self.current_tab)
 
-        if not issues:
-            issue_list = self.ids.get("issue_list")
-            if issue_list:
-                issue_list.clear_widgets()
-            self._add_empty_state()
-            self._last_loaded_tab = self.current_tab
-            return
-
         issue_list = self.ids.get("issue_list")
         if issue_list:
             issue_list.clear_widgets()
+
+        if not issues:
+            self._add_empty_state()
+            self._last_loaded_tab = self.current_tab
+            return
 
         self.card_map = {}
         self.opened_card = None
 
         seen = set()
-        for issue_id, title, summary, company, union_opt, issue_type, status, image_url in issues:
-            if title in seen:
+        for issue in issues:
+            issue_id = issue.get("id")
+            if not issue_id or issue_id in seen:
                 continue
-            seen.add(title)
+            seen.add(issue_id)
 
             card = ExpandableIssueCard(
-                issue_id=issue_id,
-                title=title,
-                summary=summary,
-                company=company,
-                union=union_opt,
+                issue_id=issue.get("id", ""),
+                title=issue.get("title", ""),
+                summary=issue.get("summary", ""),
+                company=issue.get("company", ""),
+                union=issue.get("union", ""),
                 parent_screen=self,
                 mode=self.current_tab,
-                issue_type=issue_type,
-                status=status,
-                image_url=image_url,
+                issue_type=issue.get("type", "notice"),
+                status=issue.get("status", "draft"),
+                image_url=issue.get("imageUrl", ""),
+                content=issue.get("content", ""),
+                options=issue.get("options", []),
+                multiple=issue.get("multiple", False),
+                max_selections=issue.get("maxSelections", 1),
+                created_at=issue.get("createdAt", ""),
+                is_pinned=issue.get("isPinned", False),
             )
-            self.ids.issue_list.add_widget(card)
 
-            if issue_id:
-                self.card_map[issue_id] = card
+            if issue_list:
+                issue_list.add_widget(card)
+
+            self.card_map[issue_id] = card
 
         self._last_loaded_tab = self.current_tab
-
     def _add_empty_state(self):
         issue_list = self.ids.get("issue_list")
         if not issue_list:
@@ -778,6 +957,11 @@ class MainScreen(MDScreen):
 
         issue_list.add_widget(card)
         self._last_loaded_tab = self.current_tab
+
+    def on_pre_enter(self, *args):
+        app = MDApp.get_running_app()
+        if app:
+            Clock.schedule_once(lambda dt: app.refresh_issues(), 0.1)
 
 
 class UpdateHistoryScreen(MDScreen):
@@ -1137,64 +1321,98 @@ class IssueDetailScreen(MDScreen):
             size_hint_y=None,
             height=dp(28),
         )
-
-    def _format_created_at(self, issue):
-        raw = (
-            issue.get("created_at")
-            or issue.get("updated_at")
-            or issue.get("startAt")
-            or ""
+    
+    def _make_info_card(self, title, body_widget):
+        card = MDCard(
+            orientation="vertical",
+            padding=dp(14),
+            spacing=dp(10),
+            radius=[14],
+            elevation=1,
+            md_bg_color=(1, 1, 1, 1),
+            size_hint_y=None,
         )
-        if not raw:
-            return "작성일 정보 없음"
-        return raw.replace("T", " ").replace("Z", "")
+        card.bind(minimum_height=card.setter("height"))
 
-    def _build_notice_detail(self, container, issue):
-        container.add_widget(self._make_section_title("공지 내용"))
-
-        image_url = (issue.get("imageUrl") or "").strip()
-        if image_url:
-            if image_url.startswith("http://") or image_url.startswith("https://"):
-                image_card = MDCard(
-                    orientation="vertical",
-                    padding=dp(8),
-                    radius=[12],
-                    elevation=1,
-                    size_hint_y=None,
-                    height=dp(220),
-                )
-                image_card.add_widget(
-                    AsyncImage(
-                        source=image_url,
-                        allow_stretch=True,
-                        keep_ratio=True,
-                    )
-                )
-                container.add_widget(image_card)
-            else:
-                container.add_widget(
-                    MDCard(
-                        MDLabel(
-                            text="🖼 공지 이미지가 등록되어 있습니다.",
-                            font_name="Nanum",
-                            halign="center",
-                        ),
-                        padding=dp(16),
-                        radius=[12],
-                        elevation=1,
-                        size_hint_y=None,
-                        height=dp(72),
-                    )
-                )
-
-        body_text = (
-            issue.get("content")
-            or issue.get("summary")
-            or "공지 본문이 없습니다."
+        title_label = MDLabel(
+            text=title,
+            font_name="Nanum",
+            font_size="15sp",
+            bold=True,
+            theme_text_color="Custom",
+            text_color=(0.15, 0.15, 0.15, 1),
+            size_hint_y=None,
+            height=dp(24),
         )
+
+        card.add_widget(title_label)
+        card.add_widget(body_widget)
+        return card
+    
+    def _make_notice_badge_card(self, text, bg_color=(1.0, 0.96, 0.86, 1), text_color=(0.75, 0.45, 0.05, 1)):
+        card = MDCard(
+            orientation="vertical",
+            padding=dp(12),
+            radius=[14],
+            elevation=0,
+            md_bg_color=bg_color,
+            size_hint_y=None,
+            height=dp(48),
+        )
+
+        label = MDLabel(
+            text=text,
+            font_name="Nanum",
+            bold=True,
+            theme_text_color="Custom",
+            text_color=text_color,
+            halign="center",
+            valign="middle",
+        )
+        card.add_widget(label)
+        return card
+    
+    def _make_notice_image_card(self, image_url):
+        card = MDCard(
+            orientation="vertical",
+            padding=dp(8),
+            radius=[16],
+            elevation=1,
+            md_bg_color=(1, 1, 1, 1),
+            size_hint_y=None,
+            height=dp(228),
+        )
+
+        if image_url.startswith("http://") or image_url.startswith("https://"):
+            image = AsyncImage(
+                source=image_url,
+                allow_stretch=True,
+                keep_ratio=True,
+            )
+            card.add_widget(image)
+        else:
+            card.add_widget(
+                MDLabel(
+                    text="🖼 공지 이미지가 등록되어 있습니다.",
+                    font_name="Nanum",
+                    halign="center",
+                    theme_text_color="Custom",
+                    text_color=(0.25, 0.25, 0.25, 1),
+                )
+            )
+
+        return card
+    
+    def _make_notice_body_card(self, body_text):
+        body_box = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(8),
+            size_hint_y=None,
+        )
+        body_box.bind(minimum_height=body_box.setter("height"))
 
         body_label = MDLabel(
-            text=body_text,
+            text=body_text or "공지 본문이 없습니다.",
             font_name="Nanum",
             font_size="15sp",
             theme_text_color="Custom",
@@ -1205,14 +1423,79 @@ class IssueDetailScreen(MDScreen):
         )
 
         def _update_body_height(*args):
-            body_label.text_size = (container.width - dp(32), None)
+            body_label.text_size = (self.width - dp(72), None)
             body_label.texture_update()
             body_label.height = body_label.texture_size[1]
 
-        container.bind(width=lambda *args: _update_body_height())
+        self.bind(width=lambda *args: _update_body_height())
         Clock.schedule_once(lambda dt: _update_body_height(), 0)
 
-        container.add_widget(body_label)
+        body_box.add_widget(body_label)
+        return self._make_info_card("공지 내용", body_box)
+    
+    def _format_created_at(self, issue):
+        raw = (
+            issue.get("createdAt")
+            or issue.get("updatedAt")
+            or issue.get("created_at")
+            or issue.get("updated_at")
+            or issue.get("startAt")
+            or ""
+        )
+        if not raw:
+            return "작성일 정보 없음"
+        return raw.replace("T", " ").replace("Z", "")
+
+    def _build_notice_detail(self, container, issue):
+        is_pinned = bool(issue.get("isPinned", False))
+        image_url = (issue.get("imageUrl") or "").strip()
+
+        if is_pinned:
+            container.add_widget(
+                self._make_notice_badge_card("📌 중요 공지")
+            )
+
+        summary_text = (issue.get("summary") or "").strip()
+        if summary_text:
+            summary_box = MDBoxLayout(
+                orientation="vertical",
+                spacing=dp(6),
+                size_hint_y=None,
+            )
+            summary_box.bind(minimum_height=summary_box.setter("height"))
+
+            summary_label = MDLabel(
+                text=summary_text,
+                font_name="Nanum",
+                font_size="15sp",
+                theme_text_color="Custom",
+                text_color=(0.25, 0.25, 0.25, 1),
+                size_hint_y=None,
+                halign="left",
+                valign="top",
+            )
+
+            def _update_summary_height(*args):
+                summary_label.text_size = (container.width - dp(60), None)
+                summary_label.texture_update()
+                summary_label.height = summary_label.texture_size[1]
+
+            container.bind(width=lambda *args: _update_summary_height())
+            Clock.schedule_once(lambda dt: _update_summary_height(), 0)
+
+            summary_box.add_widget(summary_label)
+            container.add_widget(self._make_info_card("공지 요약", summary_box))
+
+        if image_url:
+            container.add_widget(self._make_notice_image_card(image_url))
+
+        body_text = (
+            issue.get("content")
+            or issue.get("summary")
+            or "공지 본문이 없습니다."
+        )
+
+        container.add_widget(self._make_notice_body_card(body_text))
 
     def _clear_selection(self):
         self.selected_options = []
@@ -1256,12 +1539,12 @@ class IssueDetailScreen(MDScreen):
         inactive_text = (0.2, 0.2, 0.2, 1)
 
         for option_value, btn in (self.option_buttons or {}).items():
-            if option_value in self.selected_options:
-                btn.md_bg_color = active_bg
-                btn.text_color = active_text
-            else:
-                btn.md_bg_color = inactive_bg
-                btn.text_color = inactive_text
+            selected = option_value in self.selected_options
+
+            btn.md_bg_color = active_bg if selected else inactive_bg
+            btn.text_color = active_text if selected else inactive_text
+            btn.line_color = active_bg if selected else (0.82, 0.84, 0.88, 1)
+            btn.theme_text_color = "Custom"
 
     def _build_option_selector(self, issue):
         options = issue.get("options") or []
@@ -1275,61 +1558,99 @@ class IssueDetailScreen(MDScreen):
         )
         wrapper.bind(minimum_height=wrapper.setter("height"))
 
-        type_text = "복수 선택 가능" if issue.get("multiple") else "하나만 선택"
-        if issue.get("multiple"):
-            max_sel = int(issue.get("maxSelections", 1) or 1)
-            helper = f"{type_text} (최대 {max_sel}개)"
-        else:
-            helper = type_text
+        multiple = bool(issue.get("multiple", False))
+        max_sel = int(issue.get("maxSelections", 1) or 1)
 
-        wrapper.add_widget(
-            MDLabel(
-                text=helper,
-                font_name="Nanum",
-                theme_text_color="Secondary",
-                size_hint_y=None,
-                height=dp(20),
-            )
+        helper_text = "하나만 선택할 수 있습니다."
+        if multiple:
+            helper_text = f"복수 선택 가능 · 최대 {max_sel}개"
+
+        helper = MDLabel(
+            text=helper_text,
+            font_name="Nanum",
+            theme_text_color="Secondary",
+            size_hint_y=None,
+            height=dp(20),
         )
+
+        wrapper.add_widget(helper)
 
         self._clear_selection()
 
         for option in options:
-            btn = MDFlatButton(
+            btn = MDRaisedButton(
                 text=str(option),
                 font_name="Nanum",
-                theme_text_color="Custom",
-                text_color=(0.2, 0.2, 0.2, 1),
-                md_bg_color=(1, 1, 1, 1),
                 size_hint_y=None,
-                height=dp(42),
+                height=dp(44),
+                elevation=0,
+                md_bg_color=(1, 1, 1, 1),
+                text_color=(0.2, 0.2, 0.2, 1),
             )
             btn.bind(on_release=lambda instance, value=option: self._toggle_option(value))
             self.option_buttons[option] = btn
             wrapper.add_widget(btn)
 
-        return wrapper
+        self.refresh_option_buttons()
+        return self._make_info_card("응답 항목", wrapper)
 
     def _build_result_area(self, container):
+        result_wrapper = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(10),
+            size_hint_y=None,
+        )
+        result_wrapper.bind(minimum_height=result_wrapper.setter("height"))
+
         self.vote_summary_label = MDLabel(
             text="결과 불러오는 중...",
             font_name="Nanum",
             size_hint_y=None,
-            height=dp(56),
+            theme_text_color="Custom",
+            text_color=(0.2, 0.2, 0.2, 1),
         )
-        container.add_widget(self.vote_summary_label)
+
+        def _update_vote_summary_height(*args):
+            self.vote_summary_label.text_size = (container.width - dp(60), None)
+            self.vote_summary_label.texture_update()
+            self.vote_summary_label.height = self.vote_summary_label.texture_size[1]
+
+        container.bind(width=lambda *args: _update_vote_summary_height())
+        Clock.schedule_once(lambda dt: _update_vote_summary_height(), 0)
 
         self.result_box = OptionResultBox()
-        container.add_widget(self.result_box)
+
+        result_wrapper.add_widget(self.vote_summary_label)
+        result_wrapper.add_widget(self.result_box)
+
+        container.add_widget(self._make_info_card("결과", result_wrapper))
 
     def _build_my_response_area(self, container):
+        info_box = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(4),
+            size_hint_y=None,
+        )
+        info_box.bind(minimum_height=info_box.setter("height"))
+
         self.my_vote_label = MDLabel(
             text="내 응답: 없음",
             font_name="Nanum",
             size_hint_y=None,
-            height=dp(24),
+            theme_text_color="Custom",
+            text_color=(0.13, 0.58, 0.92, 1),
         )
-        container.add_widget(self.my_vote_label)
+
+        def _update_my_vote_height(*args):
+            self.my_vote_label.text_size = (container.width - dp(60), None)
+            self.my_vote_label.texture_update()
+            self.my_vote_label.height = self.my_vote_label.texture_size[1]
+
+        container.bind(width=lambda *args: _update_my_vote_height())
+        Clock.schedule_once(lambda dt: _update_my_vote_height(), 0)
+
+        info_box.add_widget(self.my_vote_label)
+        container.add_widget(self._make_info_card("내 응답", info_box))
 
     def _build_submit_area(self, container, issue):
         can_submit, reason = MDApp.get_running_app().can_submit_issue(issue)
@@ -1345,11 +1666,14 @@ class IssueDetailScreen(MDScreen):
                     height=dp(24),
                 )
             )
+            self.submit_btn = None
             return
 
         self.submit_btn = MDRaisedButton(
             text="응답 제출",
             font_name="Nanum",
+            md_bg_color=(0.13, 0.58, 0.92, 1),
+            text_color=(1, 1, 1, 1),
         )
         self.submit_btn.bind(
             on_release=lambda *args: MDApp.get_running_app().submit_ballot(issue)
@@ -1364,6 +1688,23 @@ class IssueDetailScreen(MDScreen):
         row.add_widget(self.submit_btn)
         container.add_widget(row)
 
+    def set_submit_button_state(self, disabled: bool, text: str | None = None):
+        btn = getattr(self, "submit_btn", None)
+        if not btn:
+            return
+
+        btn.disabled = disabled
+
+        if text is not None:
+            btn.text = text
+
+        if disabled:
+            btn.md_bg_color = (0.75, 0.75, 0.75, 1)
+            btn.text_color = (1, 1, 1, 1)
+        else:
+            btn.md_bg_color = (0.13, 0.58, 0.92, 1)
+            btn.text_color = (1, 1, 1, 1)
+
     def get_selected_options(self):
         return list(self.selected_options or [])
 
@@ -1377,6 +1718,11 @@ class IssueDetailScreen(MDScreen):
                 self.my_vote_label.text = f"내 응답: {', '.join(selected)}"
             else:
                 self.my_vote_label.text = "내 응답: 없음"
+
+        if selected:
+            self.set_submit_button_state(False, "응답 수정")
+        else:
+            self.set_submit_button_state(False, "응답 제출")
 
     def show_issue(self, issue):
         issue_id = (issue or {}).get("id")
@@ -1416,18 +1762,19 @@ class IssueDetailScreen(MDScreen):
             )
         )
 
-        summary_text = issue.get("summary", "") or "안건 요약이 없습니다."
-        container.add_widget(
-            MDLabel(
-                text=summary_text,
-                font_name="Nanum",
-                theme_text_color="Secondary",
-                size_hint_y=None,
-                height=dp(24),
-            )
-        )
-
         issue_type = issue.get("type", "vote")
+
+        if issue_type != "notice":
+            summary_text = issue.get("summary", "") or "안건 요약이 없습니다."
+            container.add_widget(
+                MDLabel(
+                    text=summary_text,
+                    font_name="Nanum",
+                    theme_text_color="Secondary",
+                    size_hint_y=None,
+                    height=dp(24),
+                )
+            )
 
         if issue_type == "notice":
             self._build_notice_detail(container, issue)
@@ -1441,27 +1788,28 @@ class IssueDetailScreen(MDScreen):
         if union_txt:
             container.add_widget(self._make_text_card("조합안", union_txt))
 
-        container.add_widget(self._make_section_title("응답 항목"))
-
         option_selector = self._build_option_selector(issue)
         if option_selector:
             container.add_widget(option_selector)
         else:
-            container.add_widget(
+            empty_box = MDBoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                height=dp(24),
+            )
+            empty_box.add_widget(
                 MDLabel(
                     text="선택 가능한 항목이 없습니다.",
                     font_name="Nanum",
                     theme_text_color="Secondary",
-                    size_hint_y=None,
-                    height=dp(24),
                 )
             )
+            container.add_widget(self._make_info_card("응답 항목", empty_box))
 
         self._build_submit_area(container, issue)
         self._build_my_response_area(container)
 
         if MDApp.get_running_app().should_show_results(issue):
-            container.add_widget(self._make_section_title("결과"))
             self._build_result_area(container)
 
         def _after(dt):
@@ -1472,6 +1820,7 @@ class IssueDetailScreen(MDScreen):
                 self.apply_my_ballot(ballot or {})
             except Exception as e:
                 print("FETCH_MY_BALLOT ERROR:", e)
+                self.set_submit_button_state(False, "응답 제출")
 
             try:
                 if app.should_show_results(issue):
@@ -1479,7 +1828,40 @@ class IssueDetailScreen(MDScreen):
             except Exception as e:
                 print("UPDATE_RESULT ERROR:", e)
 
-        Clock.schedule_once(_after, 0.1)
+# =============================
+# 업데이트 전용 화면
+# =============================
+class UpdateRequiredScreen(MDScreen):
+    def show_update_info(self, info: dict):
+        self.ids.version_title.text = "업데이트 안내"
+
+        latest = info.get("latestVersion", "")
+        minimum = info.get("minimumVersion", "")
+        message = info.get("message", "").strip()
+        required = bool(info.get("updateRequired", False))
+
+        if required:
+            self.ids.version_status.text = "필수 업데이트"
+            self.ids.version_status.text_color = (0.85, 0.20, 0.20, 1)
+            self.ids.version_body.text = (
+                f"현재 버전: {APP_VERSION}\n"
+                f"최소 버전: {minimum}\n"
+                f"최신 버전: {latest}\n\n"
+                f"{message or '앱을 계속 사용하려면 업데이트가 필요합니다.'}"
+            )
+            self.ids.skip_btn.disabled = True
+            self.ids.skip_btn.opacity = 0
+        else:
+            self.ids.version_status.text = "업데이트 권장"
+            self.ids.version_status.text_color = (0.82, 0.56, 0.12, 1)
+            self.ids.version_body.text = (
+                f"현재 버전: {APP_VERSION}\n"
+                f"최신 버전: {latest}\n\n"
+                f"{message or '새 버전이 있습니다. 업데이트를 권장합니다.'}"
+            )
+            self.ids.skip_btn.disabled = False
+            self.ids.skip_btn.opacity = 1
+
 
 # =============================
 # App
@@ -1518,7 +1900,6 @@ class MainApp(MDApp):
         return Builder.load_file(kv_path)
 
     def on_start(self):
-        # ✅ 앱 시작 시 1번만 로그인
         try:
             id_token, uid = firebase_anonymous_login()
             self.user_id_token = id_token
@@ -1529,9 +1910,29 @@ class MainApp(MDApp):
             self.user_id_token = None
             self.user_uid = None
 
-        # 기존 초기 로직
         self.refresh_issues()
         self.update_dot_state()
+        self.start_auto_refresh()
+
+        try:
+            update_info = self.get_update_state()
+
+            if update_info.get("force"):
+                Clock.schedule_once(lambda dt: self.open_update_screen(update_info), 0.2)
+            elif update_info.get("hasNewer"):
+                MDSnackbar(
+                    MDLabel(
+                        text="새 버전이 있습니다. 업데이트를 권장합니다.",
+                        font_name="Nanum",
+                        max_lines=1,
+                    ),
+                    y="10dp",
+                    pos_hint={"center_x": 0.5},
+                    size_hint_x=0.90,
+                    duration=1.5,
+                ).open()
+        except Exception as e:
+            print("UPDATE STATE ERROR:", e)
 
     def stop_update_dot_animation(self):
         main = self.root.get_screen("main")
@@ -1576,8 +1977,15 @@ class MainApp(MDApp):
                 fetched = fetch_public_issues(id_token)
                 print("DEBUG fetched count:", len(fetched))
 
+                old_titles = [x.get("title") for x in (LOCAL_ISSUES or [])]
+                new_titles = [x.get("title") for x in (fetched or [])]
+
+                print("DEBUG old titles:", old_titles[:5])
+                print("DEBUG new titles:", new_titles[:5])
+
                 if fetched:
                     LOCAL_ISSUES = fetched
+                    print("INFO: LOCAL_ISSUES updated from Firestore")
                 else:
                     print("WARN: fetched empty -> keep LOCAL_ISSUES")
 
@@ -1689,17 +2097,21 @@ class MainApp(MDApp):
 
         def arr(key):
             values = ((fields.get(key) or {}).get("arrayValue") or {}).get("values", [])
-            return [v.get("stringValue", "") for v in values]
+            result = []
+            for v in values:
+                if "stringValue" in v:
+                    result.append(v.get("stringValue", ""))
+            return result
 
         return {
             "id": issue_id,
             "title": s("title"),
             "summary": s("summary"),
-            "content": s("content"),  # ✅ 공지 상세 본문
+            "content": s("content"),
             "category": s("category"),
             "scope": s("scope"),
-            "status": s("status", "open"),
-            "type": s("type", "vote"),
+            "status": s("status", "draft"),
+            "type": s("type", "notice"),
             "resultVisibility": s("resultVisibility", "public"),
             "company": s("company"),
             "union": s("union"),
@@ -1708,9 +2120,12 @@ class MainApp(MDApp):
             "options": arr("options"),
             "startAt": ts("startAt"),
             "endAt": ts("endAt"),
-            "created_at": ts("created_at"),
-            "updated_at": ts("updated_at"),
+            "createdAt": ts("createdAt"),
+            "updatedAt": ts("updatedAt"),
             "imageUrl": s("imageUrl", ""),
+            "active": b("active", False),
+            "isPinned": b("isPinned", False),
+            "order": i("order", 999999),
         }
 
     def can_submit_issue(self, issue: dict):
@@ -1803,12 +2218,19 @@ class MainApp(MDApp):
             return
 
         detail = self.root.get_screen("detail")
+
+        submit_btn = getattr(detail, "submit_btn", None)
+        if submit_btn and submit_btn.disabled:
+            return
+
         selected_options = detail.get_selected_options()
 
         if not selected_options:
             MDSnackbar(
                 MDLabel(
-                    text="응답 항목을 선택해 주세요", font_name="Nanum", max_lines=1
+                    text="응답 항목을 선택해 주세요",
+                    font_name="Nanum",
+                    max_lines=1,
                 ),
                 y="10dp",
                 pos_hint={"center_x": 0.5},
@@ -1823,7 +2245,9 @@ class MainApp(MDApp):
         if (not multiple) and len(selected_options) != 1:
             MDSnackbar(
                 MDLabel(
-                    text="하나만 선택할 수 있습니다", font_name="Nanum", max_lines=1
+                    text="하나만 선택할 수 있습니다",
+                    font_name="Nanum",
+                    max_lines=1,
                 ),
                 y="10dp",
                 pos_hint={"center_x": 0.5},
@@ -1845,6 +2269,8 @@ class MainApp(MDApp):
                 duration=1.2,
             ).open()
             return
+
+        detail.set_submit_button_state(True, "제출 중...")
 
         try:
             id_token = getattr(self, "user_id_token", None)
@@ -1890,7 +2316,11 @@ class MainApp(MDApp):
 
             if r.status_code in (200, 201):
                 MDSnackbar(
-                    MDLabel(text="응답 저장 완료", font_name="Nanum", max_lines=1),
+                    MDLabel(
+                        text="응답이 저장되었습니다",
+                        font_name="Nanum",
+                        max_lines=1,
+                    ),
                     y="10dp",
                     pos_hint={"center_x": 0.5},
                     size_hint_x=0.85,
@@ -1902,6 +2332,7 @@ class MainApp(MDApp):
                     detail.apply_my_ballot(ballot or {})
                 except Exception as e:
                     print("APPLY MY BALLOT ERROR:", e)
+                    detail.set_submit_button_state(False, "응답 수정")
 
                 if self.should_show_results(issue):
                     Clock.schedule_once(lambda dt: self.update_vote_summary(issue), 0.1)
@@ -1909,6 +2340,7 @@ class MainApp(MDApp):
                 Clock.schedule_once(lambda dt: self.update_badge_only(issue_id), 0.1)
 
             else:
+                detail.set_submit_button_state(False, "응답 제출")
                 MDSnackbar(
                     MDLabel(
                         text=f"저장 실패: {r.status_code}",
@@ -1923,8 +2355,13 @@ class MainApp(MDApp):
 
         except Exception as e:
             print("SUBMIT BALLOT ERROR:", e)
+            detail.set_submit_button_state(False, "응답 제출")
             MDSnackbar(
-                MDLabel(text="응답 저장 중 오류", font_name="Nanum", max_lines=1),
+                MDLabel(
+                    text="응답 저장 중 오류가 발생했습니다",
+                    font_name="Nanum",
+                    max_lines=1,
+                ),
                 y="10dp",
                 pos_hint={"center_x": 0.5},
                 size_hint_x=0.85,
@@ -2431,6 +2868,87 @@ class MainApp(MDApp):
         except Exception as e:
             print("update_badge_only ERROR:", e)
 
+    def fetch_version_meta(self) -> dict:
+        return fetch_version_meta()
+
+    def get_update_state(self) -> dict:
+        info = self.fetch_version_meta()
+
+        latest = str(info.get("latestVersion") or "0.0.0")
+        minimum = str(info.get("minimumVersion") or latest)
+        update_required = bool(info.get("updateRequired", False))
+
+        is_below_minimum = compare_versions(APP_VERSION, minimum) < 0
+        has_newer = compare_versions(APP_VERSION, latest) < 0
+
+        return {
+            **info,
+            "hasNewer": has_newer,
+            "belowMinimum": is_below_minimum,
+            "force": update_required or is_below_minimum,
+        }
+
+    def open_update_url(self):
+        try:
+            info = self.get_update_state()
+            target_url = (info.get("downloadUrl") or "").strip()
+
+            if not target_url:
+                MDSnackbar(
+                    MDLabel(
+                        text="업데이트 주소가 등록되지 않았습니다",
+                        font_name="Nanum",
+                        max_lines=1,
+                    ),
+                    y="10dp",
+                    pos_hint={"center_x": 0.5},
+                    size_hint_x=0.85,
+                    duration=1.2,
+                ).open()
+                return
+
+            webbrowser.open(target_url)
+
+        except Exception as e:
+            print("OPEN UPDATE URL ERROR:", e)
+            MDSnackbar(
+                MDLabel(
+                    text="업데이트 페이지를 열 수 없습니다",
+                    font_name="Nanum",
+                    max_lines=1,
+                ),
+                y="10dp",
+                pos_hint={"center_x": 0.5},
+                size_hint_x=0.85,
+                duration=1.2,
+            ).open()
+
+    def open_update_screen(self, info: dict):
+        screen = self.root.get_screen("update_required")
+        screen.show_update_info(info)
+        self.root.current = "update_required"
+
+    def go_update_skip(self):
+        self.root.current = "main"
+
+    _auto_refresh_event = None
+
+    def start_auto_refresh(self):
+        if self._auto_refresh_event is not None:
+            return
+
+        self._auto_refresh_event = Clock.schedule_interval(
+            lambda dt: self.refresh_issues(),
+            20
+        )
+
+    def stop_auto_refresh(self):
+        if self._auto_refresh_event is not None:
+            self._auto_refresh_event.cancel()
+            self._auto_refresh_event = None
+
+    def on_stop(self):
+         self.stop_auto_refresh()
 
 if __name__ == "__main__":
     MainApp().run()

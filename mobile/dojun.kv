@@ -8,6 +8,8 @@ ScreenManager:
         name: "history"
     IssueDetailScreen:
         name: "detail"
+    UpdateRequiredScreen:
+        name: "update_required"
 
 
 <MainScreen>:
@@ -19,7 +21,7 @@ ScreenManager:
         MDBoxLayout:
             orientation: "vertical"
             size_hint_y: None
-            height: dp(108)
+            height: dp(112)
             md_bg_color: 0.13, 0.58, 0.92, 1
 
             FloatLayout:
@@ -52,19 +54,19 @@ ScreenManager:
                 halign: "center"
                 valign: "middle"
                 size_hint_y: None
-                height: dp(44)
+                height: dp(48)
                 theme_text_color: "Custom"
                 text_color: 1, 1, 1, 1
 
-                # ===== 커스텀 탭 바 =====
+        # ===== 커스텀 탭 바 =====
         MDBoxLayout:
             size_hint_y: None
-            height: dp(56)
-            padding: dp(12), dp(8)
-            spacing: dp(10)
+            height: dp(64)
+            padding: dp(12), dp(10)
+            spacing: dp(8)
             md_bg_color: 0.96, 0.97, 0.98, 1
 
-            MDLabel:
+            Widget:
                 size_hint_x: 1
 
             MDFlatButton:
@@ -74,6 +76,8 @@ ScreenManager:
                 theme_text_color: "Custom"
                 text_color: 1, 1, 1, 1
                 md_bg_color: 0.13, 0.58, 0.92, 1
+                size_hint_x: None
+                width: dp(64)
                 on_release: root.set_tab("전체")
 
             MDFlatButton:
@@ -83,6 +87,8 @@ ScreenManager:
                 theme_text_color: "Custom"
                 text_color: 0.25, 0.25, 0.25, 1
                 md_bg_color: 1, 1, 1, 1
+                size_hint_x: None
+                width: dp(64)
                 on_release: root.set_tab("공지")
 
             MDFlatButton:
@@ -92,6 +98,8 @@ ScreenManager:
                 theme_text_color: "Custom"
                 text_color: 0.25, 0.25, 0.25, 1
                 md_bg_color: 1, 1, 1, 1
+                size_hint_x: None
+                width: dp(64)
                 on_release: root.set_tab("투표")
 
             MDFlatButton:
@@ -101,34 +109,37 @@ ScreenManager:
                 theme_text_color: "Custom"
                 text_color: 0.25, 0.25, 0.25, 1
                 md_bg_color: 1, 1, 1, 1
+                size_hint_x: None
+                width: dp(64)
                 on_release: root.set_tab("설문")
 
-            MDLabel:
+            Widget:
                 size_hint_x: 1
 
         # ===== 메인 리스트 영역 =====
         MDBoxLayout:
             orientation: "vertical"
-            padding: dp(8), dp(8), dp(8), dp(8)
+            padding: dp(10), dp(6), dp(10), dp(8)
 
             ScrollView:
                 id: issue_scroll
                 size_hint_y: 1
                 do_scroll_x: False
                 bar_width: dp(3)
+                scroll_type: ["bars", "content"]
 
                 MDBoxLayout:
                     id: issue_list
                     orientation: "vertical"
                     size_hint_y: None
                     height: self.minimum_height
-                    padding: dp(8)
+                    padding: dp(4), dp(6), dp(4), dp(16)
                     spacing: dp(12)
 
         # ===== 하단 버튼바 =====
         MDBoxLayout:
             size_hint_y: None
-            height: dp(56)
+            height: dp(58)
             padding: dp(12), 0
             spacing: dp(12)
             md_bg_color: 1, 1, 1, 1
@@ -175,6 +186,7 @@ ScreenManager:
         ScrollView:
             do_scroll_x: False
             bar_width: dp(3)
+            scroll_type: ["bars", "content"]
 
             MDBoxLayout:
                 id: history_container
@@ -199,11 +211,95 @@ ScreenManager:
         ScrollView:
             do_scroll_x: False
             bar_width: dp(3)
+            scroll_type: ["bars", "content"]
 
             MDBoxLayout:
                 id: detail_container
                 orientation: "vertical"
                 size_hint_y: None
                 height: self.minimum_height
-                padding: dp(16)
+                padding: dp(16), dp(16), dp(16), dp(24)
                 spacing: dp(14)
+
+<UpdateRequiredScreen>:
+    MDBoxLayout:
+        orientation: "vertical"
+        padding: dp(20)
+        spacing: dp(16)
+        md_bg_color: 0.96, 0.97, 0.98, 1
+
+        Widget:
+            size_hint_y: 0.2
+
+        MDCard:
+            orientation: "vertical"
+            padding: dp(18)
+            spacing: dp(14)
+            radius: [18]
+            elevation: 2
+            md_bg_color: 1, 1, 1, 1
+            size_hint_y: None
+            height: self.minimum_height
+
+            MDIcon:
+                icon: "cellphone-arrow-down"
+                theme_text_color: "Custom"
+                text_color: 0.13, 0.58, 0.92, 1
+                halign: "center"
+                font_size: "42sp"
+                size_hint_y: None
+                height: dp(56)
+
+            MDLabel:
+                id: version_title
+                text: "업데이트 안내"
+                font_name: "Nanum"
+                font_size: "22sp"
+                bold: True
+                halign: "center"
+                size_hint_y: None
+                height: dp(34)
+
+            MDLabel:
+                id: version_status
+                text: "필수 업데이트"
+                font_name: "Nanum"
+                bold: True
+                halign: "center"
+                theme_text_color: "Custom"
+                text_color: 0.85, 0.20, 0.20, 1
+                size_hint_y: None
+                height: dp(24)
+
+            MDLabel:
+                id: version_body
+                text: ""
+                font_name: "Nanum"
+                halign: "center"
+                valign: "middle"
+                theme_text_color: "Secondary"
+                size_hint_y: None
+                text_size: self.width, None
+                height: self.texture_size[1] + dp(8)
+
+            MDBoxLayout:
+                orientation: "horizontal"
+                spacing: dp(10)
+                size_hint_y: None
+                height: dp(46)
+
+                MDFlatButton:
+                    id: skip_btn
+                    text: "나중에"
+                    font_name: "Nanum"
+                    on_release: app.go_update_skip()
+
+                MDRaisedButton:
+                    text: "업데이트"
+                    font_name: "Nanum"
+                    md_bg_color: 0.13, 0.58, 0.92, 1
+                    text_color: 1, 1, 1, 1
+                    on_release: app.open_update_url()
+
+        Widget:
+            size_hint_y: 0.8
