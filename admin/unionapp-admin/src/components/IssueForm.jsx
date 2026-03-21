@@ -1,623 +1,542 @@
-import { useRef, useState } from "react";
-import FieldLabel from "./FieldLabel";
+import React, { useMemo } from "react";
 import { ui } from "../styles/ui";
-import {
-  TYPE_OPTIONS,
-  RESULT_VISIBILITY_OPTIONS,
-} from "../hooks/useIssues";
-import {
-  uploadIssueImage,
-  deleteIssueImageByUrl,
-} from "../services/storageService";
 
-function toNumberOrEmpty(value) {
-  if (value === "") return "";
-  const num = Number(value);
-  return Number.isNaN(num) ? "" : num;
+const TYPE_OPTIONS = [
+  { value: "notice", label: "공지" },
+  { value: "vote", label: "투표" },
+  { value: "survey", label: "설문" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "draft", label: "작성중" },
+  { value: "review", label: "검토중" },
+  { value: "open", label: "모바일 공개" },
+  { value: "closed", label: "종료" },
+  { value: "archived", label: "보관" },
+];
+
+const RESULT_VISIBILITY_OPTIONS = [
+  { value: "after_close", label: "종료 후 공개" },
+  { value: "public", label: "즉시 공개" },
+  { value: "admin_only", label: "관리자만" },
+];
+
+function getAutoScope(tab) {
+  return tab === "private" ? "비공개" : "전체";
 }
 
-function normalizeFormByType(prevForm, nextType) {
-  const base = {
-    ...prevForm,
-    type: nextType,
+function getTabLabel(tab) {
+  return tab === "private" ? "내부 안건" : "공개 안건";
+}
+
+function getVisibilityGuide(tab, type, status) {
+  if (tab === "private") {
+    return {
+      visible: false,
+      badge: "모바일 비공개",
+      text: "내부 안건은 항상 관리자 전용이며 모바일 앱에 노출되지 않습니다.",
+    };
+  }
+
+  if (type === "notice") {
+    const visible = status === "open" || status === "closed";
+    return {
+      visible,
+      badge: visible ? "모바일 공개" : "모바일 비공개",
+      text: visible
+        ? "공개 공지는 현재 모바일 앱에 노출됩니다."
+        : "공개 공지는 상태가 '모바일 공개' 또는 '종료'일 때만 모바일에 노출됩니다.",
+    };
+  }
+
+  const visible = status === "open";
+  return {
+    visible,
+    badge: visible ? "모바일 공개" : "모바일 비공개",
+    text: visible
+      ? "공개 투표/설문은 현재 모바일 앱에 노출됩니다."
+      : "공개 투표/설문은 상태가 '모바일 공개'일 때만 모바일에 노출됩니다.",
   };
-
-  if (nextType === "notice") {
-    return {
-      ...base,
-      company: "",
-      union: "",
-      optionsText: "",
-      multiple: false,
-      maxSelections: 1,
-      resultVisibility: "public",
-    };
-  }
-
-  if (nextType === "vote") {
-    return {
-      ...base,
-      content: "",
-      imageUrl: "",
-      multiple: false,
-      maxSelections: 1,
-      resultVisibility: base.resultVisibility || "after_close",
-    };
-  }
-
-  if (nextType === "survey") {
-    return {
-      ...base,
-      content: "",
-      imageUrl: "",
-      company: "",
-      union: "",
-      multiple: !!base.multiple,
-      maxSelections:
-        base.multiple && Number(base.maxSelections) > 1
-          ? Number(base.maxSelections)
-          : 1,
-      resultVisibility: base.resultVisibility || "after_close",
-    };
-  }
-
-  return base;
 }
 
-function getOptionsCount(optionsText = "") {
-  return optionsText
+function normalizeOptionsText(value) {
+  if (Array.isArray(value)) return value.join("\n");
+  return value || "";
+}
+
+function parseOptions(value) {
+  return String(value || "")
     .split("\n")
     .map((v) => v.trim())
-    .filter(Boolean).length;
+    .filter(Boolean);
 }
 
+function validateForm({ tab, form }) {
+  const errors = [];
+
+  if (!String(form.title || "").trim()) {
+    errors.push("제목은 필수입니다.");
+  }
+
+  if (!String(form.summary || "").trim()) {
+    errors.push("요약은 필수입니다.");
+  }
+
+  if (!String(form.category || "").trim()) {
+    errors.push("카테고리는 필수입니다.");
+  }
+
+  if (form.type === "vote" || form.type === "survey") {
+    const options = parseOptions(form.options);
+
+    if (options.length < 2) {
+      errors.push("투표/설문 선택지는 최소 2개 이상이어야 합니다.");
+    }
+
+    if (form.multiple) {
+      const maxSelections = Number(form.maxSelections || 0);
+
+      if (!Number.isFinite(maxSelections) || maxSelections < 1) {
+        errors.push("복수 선택 허용 시 최대 선택 개수는 1 이상이어야 합니다.");
+      }
+
+      if (options.length > 0 && maxSelections > options.length) {
+        errors.push("최대 선택 개수는 선택지 개수를 초과할 수 없습니다.");
+      }
+    }
+
+    if (form.startAt && form.endAt && form.startAt > form.endAt) {
+      errors.push("종료일시는 시작일시보다 빠를 수 없습니다.");
+    }
+  }
+
+  return errors;
+}
+
+const local = {
+  formWrap: {
+    border: "1px solid #dcdfe5",
+    borderRadius: 16,
+    background: "#ffffff",
+    padding: 16,
+    marginBottom: 12,
+  },
+  titleRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 12,
+  },
+  badge: {
+    padding: "6px 12px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  noticeBox: {
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#f8fafc",
+    padding: 12,
+    fontSize: 14,
+    lineHeight: 1.6,
+    marginBottom: 12,
+  },
+  errorBox: {
+    border: "1px solid #fecaca",
+    borderRadius: 12,
+    background: "#fef2f2",
+    color: "#991b1b",
+    padding: 12,
+    marginBottom: 12,
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+  },
+  input: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    fontSize: 14,
+    boxSizing: "border-box",
+  },
+  textarea: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    fontSize: 14,
+    boxSizing: "border-box",
+    resize: "vertical",
+    fontFamily: "inherit",
+  },
+  label: {
+    display: "block",
+    fontWeight: 700,
+    marginBottom: 6,
+    color: "#1f2937",
+  },
+  checkRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 42,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    boxSizing: "border-box",
+  },
+  buttonRow: {
+    display: "flex",
+    gap: 8,
+    marginTop: 12,
+    flexWrap: "wrap",
+  },
+  primaryButton: {
+    padding: "10px 16px",
+    borderRadius: 10,
+    border: "none",
+    background: "#2563eb",
+    color: "#fff",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  secondaryButton: {
+    padding: "10px 16px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    color: "#111827",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+};
+
 export default function IssueForm({
-  mode,
+  tab = "public",
   form,
   setForm,
-  onSave,
-  onCancel,
-  currentTab,
-  saving,
-  statusOptions,
+  onSaveNewIssue,
+  onSaveEdit,
+  onCancelEdit,
+  editingId,
+  savingIssue = false,
+  canCreateOrEdit = true,
 }) {
-  const isCreate = mode === "create";
-  const isNotice = form.type === "notice";
-  const isVote = form.type === "vote";
-  const isSurvey = form.type === "survey";
+  const autoScope = getAutoScope(tab);
+  const visibilityGuide = getVisibilityGuide(tab, form.type, form.status);
+  const errors = useMemo(() => validateForm({ tab, form }), [tab, form]);
+  const canSubmit = canCreateOrEdit && !savingIssue && errors.length === 0;
 
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const fileInputRef = useRef(null);
-
-  const optionCount = getOptionsCount(form.optionsText);
-  const titleValid = form.title?.trim().length > 0;
-  const noticeValid = !isNotice || form.content?.trim().length > 0;
-  const voteValid = !isVote || optionCount >= 2;
-  const surveyValid = !isSurvey || optionCount >= 2;
-
-  const dateValid =
-    !form.startAt ||
-    !form.endAt ||
-    new Date(form.startAt).getTime() <= new Date(form.endAt).getTime();
-
-  const maxSelectionValid =
-    !isSurvey ||
-    !form.multiple ||
-    (Number(form.maxSelections) >= 2 &&
-      Number(form.maxSelections) <= optionCount);
-
-  const canSave =
-    titleValid &&
-    noticeValid &&
-    voteValid &&
-    surveyValid &&
-    dateValid &&
-    maxSelectionValid &&
-    !saving &&
-    !uploadingImage;
-
-  const handleTypeChange = (e) => {
-    const nextType = e.target.value;
-    setForm((prev) => normalizeFormByType(prev, nextType));
+  const updateField = (key, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   };
 
-  const handleSave = () => {
-    if (!canSave) return;
-    onSave();
-  };
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!canSubmit) return;
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const isImage = file.type.startsWith("image/");
-    if (!isImage) {
-      alert("이미지 파일만 업로드할 수 있어.");
-      e.target.value = "";
+    if (editingId) {
+      await onSaveEdit();
       return;
     }
 
-    try {
-      setUploadingImage(true);
-
-      // 기존 Firebase Storage 이미지가 있으면 먼저 삭제
-      if (form.imageUrl) {
-        try {
-          await deleteIssueImageByUrl(form.imageUrl);
-        } catch (deleteErr) {
-          console.error("OLD IMAGE DELETE ERROR:", deleteErr);
-        }
-      }
-
-      const url = await uploadIssueImage(file, isCreate ? "temp" : "edit");
-
-      setForm((prev) => ({
-        ...prev,
-        imageUrl: url,
-      }));
-    } catch (err) {
-      console.error("IMAGE UPLOAD ERROR:", err);
-      alert("이미지 업로드에 실패했어.");
-    } finally {
-      setUploadingImage(false);
-      e.target.value = "";
-    }
+    await onSaveNewIssue();
   };
 
-  const handleRemoveImage = async () => {
-    if (!form.imageUrl) return;
-
-    try {
-      setUploadingImage(true);
-
-      try {
-        await deleteIssueImageByUrl(form.imageUrl);
-      } catch (err) {
-        console.error("IMAGE DELETE ERROR:", err);
-      }
-
-      setForm((prev) => ({
-        ...prev,
-        imageUrl: "",
-      }));
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } finally {
-      setUploadingImage(false);
-    }
+  const badgeStyle = {
+    ...local.badge,
+    background: visibilityGuide.visible ? "#dbeafe" : "#f3f4f6",
+    color: visibilityGuide.visible ? "#1d4ed8" : "#4b5563",
   };
 
   return (
-    <div style={ui.formWrap}>
-      <div style={ui.formTitle}>
-        {isCreate ? "새 안건 추가" : "안건 편집"}
+    <form onSubmit={handleSubmit} style={local.formWrap}>
+      <div style={local.titleRow}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>
+            {editingId ? "안건 수정" : "새 안건 작성"}
+          </div>
+          <div style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>
+            현재 작성 위치: <b>{getTabLabel(tab)}</b>
+          </div>
+        </div>
+
+        <div style={badgeStyle}>{visibilityGuide.badge}</div>
       </div>
 
-      <div style={ui.formGrid}>
-        <div style={ui.threeColGrid}>
-          <div style={ui.minCell}>
-            <FieldLabel>타입</FieldLabel>
-            <select
-              value={form.type}
-              onChange={handleTypeChange}
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            >
-              {TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+      <div style={local.noticeBox}>
+        <div style={{ fontWeight: 800, marginBottom: 4 }}>운영 안내</div>
+        <div>범위(scope)는 직접 선택하지 않습니다.</div>
+        <div>
+          현재 탭 기준으로 자동 저장됩니다: <b>{getTabLabel(tab)} → {autoScope}</b>
+        </div>
+        <div style={{ marginTop: 6, color: "#4b5563" }}>{visibilityGuide.text}</div>
+      </div>
 
-          <div style={ui.minCell}>
-            <FieldLabel>카테고리</FieldLabel>
-            <input
-              value={form.category}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, category: e.target.value }))
-              }
-              placeholder="general"
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            />
-          </div>
+      {errors.length > 0 && (
+        <div style={local.errorBox}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>입력 확인</div>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {errors.map((msg, idx) => (
+              <li key={idx}>{msg}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-          <div style={ui.minCell}>
-            <FieldLabel>순서</FieldLabel>
-            <input
-              type="number"
-              value={form.order ?? ""}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  order: toNumberOrEmpty(e.target.value),
-                }))
-              }
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            />
-          </div>
+      <div style={local.grid2}>
+        <div>
+          <label style={local.label}>안건 유형</label>
+          <select
+            value={form.type || "notice"}
+            onChange={(e) => updateField("type", e.target.value)}
+            style={local.input}
+          >
+            {TYPE_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div style={ui.minCell}>
-          <FieldLabel>제목</FieldLabel>
+        <div>
+          <label style={local.label}>상태</label>
+          <select
+            value={form.status || "draft"}
+            onChange={(e) => updateField("status", e.target.value)}
+            style={local.input}
+          >
+            {STATUS_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <label style={local.label}>제목</label>
+        <input
+          type="text"
+          value={form.title || ""}
+          onChange={(e) => updateField("title", e.target.value)}
+          style={local.input}
+          placeholder="제목을 입력하세요"
+        />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <label style={local.label}>요약</label>
+        <textarea
+          value={form.summary || ""}
+          onChange={(e) => updateField("summary", e.target.value)}
+          style={{ ...local.textarea, minHeight: 90 }}
+          placeholder="목록 카드에 보여줄 핵심 요약"
+        />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <label style={local.label}>본문</label>
+        <textarea
+          value={form.content || ""}
+          onChange={(e) => updateField("content", e.target.value)}
+          style={{ ...local.textarea, minHeight: 160 }}
+          placeholder="상세 설명, 배경, 운영 판단 근거 등을 입력하세요"
+        />
+      </div>
+
+      <div style={{ ...local.grid2, marginTop: 12 }}>
+        <div>
+          <label style={local.label}>카테고리</label>
           <input
-            value={form.title}
-            onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
-            placeholder="안건 제목"
-            style={ui.input}
-            disabled={saving || uploadingImage}
+            type="text"
+            value={form.category || ""}
+            onChange={(e) => updateField("category", e.target.value)}
+            style={local.input}
+            placeholder="예: 임단협 / 공지 / 제도개선"
           />
         </div>
 
-        <div style={ui.minCell}>
-          <FieldLabel>요약</FieldLabel>
+        <div>
+          <label style={local.label}>결과 공개 범위</label>
+          <select
+            value={form.resultVisibility || "after_close"}
+            onChange={(e) => updateField("resultVisibility", e.target.value)}
+            style={local.input}
+          >
+            {RESULT_VISIBILITY_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ ...local.grid2, marginTop: 12 }}>
+        <div>
+          <label style={local.label}>이미지 URL</label>
           <input
-            value={form.summary}
+            type="text"
+            value={form.imageUrl || ""}
+            onChange={(e) => updateField("imageUrl", e.target.value)}
+            style={local.input}
+            placeholder="선택 사항"
+          />
+        </div>
+
+        <div>
+          <label style={local.label}>정렬 순서</label>
+          <input
+            type="number"
+            min="1"
+            value={form.order ?? ""}
             onChange={(e) =>
-              setForm((p) => ({ ...p, summary: e.target.value }))
+              updateField("order", e.target.value === "" ? "" : Number(e.target.value))
             }
-            placeholder="요약"
-            style={ui.input}
-            disabled={saving || uploadingImage}
+            style={local.input}
+            placeholder="자동"
           />
         </div>
+      </div>
 
-        {isNotice && (
-          <>
-            <div style={ui.minCell}>
-              <FieldLabel>본문(content)</FieldLabel>
-              <textarea
-                rows={6}
-                value={form.content}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, content: e.target.value }))
-                }
-                placeholder="공지 본문"
-                style={ui.textarea}
-                disabled={saving || uploadingImage}
+      <div style={{ marginTop: 12 }}>
+        <label style={local.checkRow}>
+          <input
+            type="checkbox"
+            checked={!!form.isPinned}
+            onChange={(e) => updateField("isPinned", e.target.checked)}
+          />
+          상단 고정
+        </label>
+      </div>
+
+      {tab === "private" && (
+        <>
+          <div style={{ marginTop: 12 }}>
+            <label style={local.label}>내부 메모</label>
+            <textarea
+              value={form.internalMemo || ""}
+              onChange={(e) => updateField("internalMemo", e.target.value)}
+              style={{ ...local.textarea, minHeight: 100 }}
+              placeholder="관리자 내부 메모"
+            />
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label style={local.label}>검토 코멘트</label>
+            <textarea
+              value={form.reviewComment || ""}
+              onChange={(e) => updateField("reviewComment", e.target.value)}
+              style={{ ...local.textarea, minHeight: 80 }}
+              placeholder="검토용 코멘트"
+            />
+          </div>
+        </>
+      )}
+
+      {(form.type === "vote" || form.type === "survey") && (
+        <>
+          <div style={{ marginTop: 12 }}>
+            <label style={local.label}>선택지 (줄바꿈으로 구분)</label>
+            <textarea
+              value={normalizeOptionsText(form.options)}
+              onChange={(e) => updateField("options", e.target.value)}
+              style={{ ...local.textarea, minHeight: 120 }}
+              placeholder={"찬성\n반대\n보류"}
+            />
+          </div>
+
+          <div style={{ ...local.grid2, marginTop: 12 }}>
+            <div>
+              <label style={local.label}>시작일시</label>
+              <input
+                type="datetime-local"
+                value={form.startAt || ""}
+                onChange={(e) => updateField("startAt", e.target.value)}
+                style={local.input}
               />
             </div>
 
-            <div style={ui.minCell}>
-              <FieldLabel>공지 이미지 업로드</FieldLabel>
-
-              <div style={{ display: "grid", gap: 8 }}>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  disabled={saving || uploadingImage}
-                  style={ui.input}
-                />
-
-                {uploadingImage && (
-                  <div style={{ color: "#2563eb", fontSize: 13 }}>
-                    이미지 처리 중...
-                  </div>
-                )}
-
-                {form.imageUrl && (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <img
-                      src={form.imageUrl}
-                      alt="공지 이미지 미리보기"
-                      style={{
-                        maxWidth: "100%",
-                        maxHeight: 240,
-                        objectFit: "cover",
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                      }}
-                    />
-
-                    <input
-                      value={form.imageUrl}
-                      onChange={(e) =>
-                        setForm((p) => ({ ...p, imageUrl: e.target.value }))
-                      }
-                      placeholder="https://..."
-                      style={ui.input}
-                      disabled={saving || uploadingImage}
-                    />
-
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        type="button"
-                        onClick={handleRemoveImage}
-                        disabled={saving || uploadingImage}
-                      >
-                        이미지 제거
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {!form.imageUrl && !uploadingImage && (
-                  <div style={{ color: "#64748b", fontSize: 13 }}>
-                    이미지를 선택하면 자동 업로드되고, 제거하면 Storage 파일도 같이 삭제돼.
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {isVote && (
-          <>
-            <div style={ui.twoColGrid}>
-              <div style={ui.minCell}>
-                <FieldLabel>회사안</FieldLabel>
-                <textarea
-                  rows={4}
-                  value={form.company}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, company: e.target.value }))
-                  }
-                  placeholder="회사안"
-                  style={ui.textarea}
-                  disabled={saving || uploadingImage}
-                />
-              </div>
-              <div style={ui.minCell}>
-                <FieldLabel>조합안</FieldLabel>
-                <textarea
-                  rows={4}
-                  value={form.union}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, union: e.target.value }))
-                  }
-                  placeholder="조합안"
-                  style={ui.textarea}
-                  disabled={saving || uploadingImage}
-                />
-              </div>
-            </div>
-
-            <div style={ui.minCell}>
-              <FieldLabel>투표 옵션 (한 줄에 하나씩)</FieldLabel>
-              <textarea
-                rows={4}
-                value={form.optionsText}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, optionsText: e.target.value }))
-                }
-                placeholder={"찬성\n반대\n보류"}
-                style={ui.textarea}
-                disabled={saving || uploadingImage}
+            <div>
+              <label style={local.label}>종료일시</label>
+              <input
+                type="datetime-local"
+                value={form.endAt || ""}
+                onChange={(e) => updateField("endAt", e.target.value)}
+                style={local.input}
               />
             </div>
-          </>
-        )}
+          </div>
 
-        {isSurvey && (
-          <>
-            <div style={ui.minCell}>
-              <FieldLabel>설문 옵션 (한 줄에 하나씩)</FieldLabel>
-              <textarea
-                rows={5}
-                value={form.optionsText}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, optionsText: e.target.value }))
-                }
-                placeholder={"노동법\n산안법\n단체교섭\n정세교육"}
-                style={ui.textarea}
-                disabled={saving || uploadingImage}
+          <div style={{ ...local.grid2, marginTop: 12 }}>
+            <label style={local.checkRow}>
+              <input
+                type="checkbox"
+                checked={!!form.multiple}
+                onChange={(e) => updateField("multiple", e.target.checked)}
               />
-            </div>
+              복수 선택 허용
+            </label>
 
-            <div style={ui.threeColGrid}>
-              <div style={ui.minCell}>
-                <FieldLabel>복수 선택</FieldLabel>
-                <select
-                  value={form.multiple ? "true" : "false"}
-                  onChange={(e) =>
-                    setForm((p) => ({
-                      ...p,
-                      multiple: e.target.value === "true",
-                      maxSelections:
-                        e.target.value === "true"
-                          ? Math.max(Number(p.maxSelections) || 2, 2)
-                          : 1,
-                    }))
-                  }
-                  style={ui.input}
-                  disabled={saving || uploadingImage}
-                >
-                  <option value="false">단일 선택</option>
-                  <option value="true">복수 선택</option>
-                </select>
-              </div>
-
-              <div style={ui.minCell}>
-                <FieldLabel>최대 선택 수</FieldLabel>
+            {form.multiple ? (
+              <div>
+                <label style={local.label}>최대 선택 개수</label>
                 <input
                   type="number"
-                  min={form.multiple ? 2 : 1}
-                  max={optionCount || undefined}
+                  min="1"
                   value={form.maxSelections ?? ""}
                   onChange={(e) =>
-                    setForm((p) => ({
-                      ...p,
-                      maxSelections: toNumberOrEmpty(e.target.value),
-                    }))
+                    updateField(
+                      "maxSelections",
+                      e.target.value === "" ? "" : Number(e.target.value)
+                    )
                   }
-                  style={ui.input}
-                  disabled={saving || uploadingImage || !form.multiple}
+                  style={local.input}
                 />
               </div>
-
-              <div style={ui.minCell}>
-                <FieldLabel>결과 공개</FieldLabel>
-                <select
-                  value={form.resultVisibility}
-                  onChange={(e) =>
-                    setForm((p) => ({
-                      ...p,
-                      resultVisibility: e.target.value,
-                    }))
-                  }
-                  style={ui.input}
-                  disabled={saving || uploadingImage}
-                >
-                  {RESULT_VISIBILITY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+            ) : (
+              <div style={local.noticeBox}>
+                단일 선택 모드에서는 최대 선택 개수가 자동으로 1로 처리됩니다.
               </div>
-            </div>
-          </>
-        )}
-
-        {!isNotice && !isSurvey && (
-          <div style={ui.minCell}>
-            <FieldLabel>결과 공개</FieldLabel>
-            <select
-              value={form.resultVisibility}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, resultVisibility: e.target.value }))
-              }
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            >
-              {RESULT_VISIBILITY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            )}
           </div>
-        )}
+        </>
+      )}
 
-        <div style={ui.threeColGrid}>
-          <div style={ui.minCell}>
-            <FieldLabel>범위</FieldLabel>
-            <select
-              value={form.scope}
-              onChange={(e) => setForm((p) => ({ ...p, scope: e.target.value }))}
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            >
-              <option value="전체">전체</option>
-              <option value="회사안">회사안</option>
-              <option value="조합안">조합안</option>
-              {currentTab === "private" && <option value="비공개">비공개</option>}
-            </select>
-          </div>
-
-          <div style={ui.minCell}>
-            <FieldLabel>상태</FieldLabel>
-            <select
-              value={form.status}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, status: e.target.value }))
-              }
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            >
-              {statusOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={ui.minCell}>
-            <FieldLabel>상단 고정</FieldLabel>
-            <select
-              value={form.isPinned ? "true" : "false"}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, isPinned: e.target.value === "true" }))
-              }
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            >
-              <option value="false">일반</option>
-              <option value="true">고정</option>
-            </select>
-          </div>
-        </div>
-
-        <div style={ui.twoColGrid}>
-          <div style={ui.minCell}>
-            <FieldLabel>시작일시</FieldLabel>
-            <input
-              type="datetime-local"
-              value={form.startAt || ""}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, startAt: e.target.value }))
-              }
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            />
-          </div>
-
-          <div style={ui.minCell}>
-            <FieldLabel>종료일시</FieldLabel>
-            <input
-              type="datetime-local"
-              value={form.endAt || ""}
-              min={form.startAt || undefined}
-              onChange={(e) => setForm((p) => ({ ...p, endAt: e.target.value }))}
-              style={ui.input}
-              disabled={saving || uploadingImage}
-            />
-          </div>
-        </div>
-
-        {!titleValid && (
-          <div style={{ ...ui.minCell, color: "#b91c1c", fontSize: 13 }}>
-            제목은 필수야.
-          </div>
-        )}
-
-        {isNotice && !noticeValid && (
-          <div style={{ ...ui.minCell, color: "#b91c1c", fontSize: 13 }}>
-            공지는 본문이 필요해.
-          </div>
-        )}
-
-        {isVote && !voteValid && (
-          <div style={{ ...ui.minCell, color: "#b91c1c", fontSize: 13 }}>
-            투표 옵션은 최소 2개 이상 필요해.
-          </div>
-        )}
-
-        {isSurvey && !surveyValid && (
-          <div style={{ ...ui.minCell, color: "#b91c1c", fontSize: 13 }}>
-            설문 옵션은 최소 2개 이상 필요해.
-          </div>
-        )}
-
-        {!dateValid && (
-          <div style={{ ...ui.minCell, color: "#b91c1c", fontSize: 13 }}>
-            종료일시는 시작일시보다 빠를 수 없어.
-          </div>
-        )}
-
-        {isSurvey && form.multiple && !maxSelectionValid && (
-          <div style={{ ...ui.minCell, color: "#b91c1c", fontSize: 13 }}>
-            복수 선택일 때 최대 선택 수는 2 이상이고 옵션 수를 넘을 수 없어.
-          </div>
-        )}
-      </div>
-
-      <div style={ui.formActions}>
-        <button onClick={handleSave} disabled={!canSave}>
-          {saving ? "저장 중..." : uploadingImage ? "이미지 처리 중..." : isCreate ? "추가 저장" : "저장"}
+      <div style={local.buttonRow}>
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          style={{
+            ...local.primaryButton,
+            opacity: canSubmit ? 1 : 0.5,
+            cursor: canSubmit ? "pointer" : "not-allowed",
+          }}
+        >
+          {savingIssue ? "저장 중..." : editingId ? "수정 저장" : "안건 생성"}
         </button>
-        <button onClick={onCancel} disabled={saving || uploadingImage}>
+
+        <button
+          type="button"
+          onClick={onCancelEdit}
+          style={local.secondaryButton}
+        >
           취소
         </button>
       </div>
-    </div>
+    </form>
   );
 }

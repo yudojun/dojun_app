@@ -3,6 +3,7 @@ import IssueCard from "./IssueCard";
 import SectionCard from "./SectionCard";
 import { ui } from "../styles/ui";
 
+
 export default function IssueListPanel({
   tab,
   tabTitle,
@@ -31,12 +32,15 @@ export default function IssueListPanel({
   typeBadgeStyle,
   canCreateOrEdit,
   canHardDelete,
+  mobileCompact = false,
 }) {
   const isCreateFormOpen =
-    !showTrash && canCreateOrEdit && isCreating && createTargetTab === tab;
-
+    !mobileCompact &&
+    !showTrash &&
+    canCreateOrEdit &&
+    isCreating &&
+    createTargetTab === tab;
   const activeEditingId = isCreateFormOpen ? null : editingId;
-
   const isInteractionLocked = savingIssue;
 
   const canShowEmptyTrash = showTrash && visibleIssues.length === 0;
@@ -51,14 +55,15 @@ export default function IssueListPanel({
       {isCreateFormOpen && (
         <div style={{ marginBottom: 12 }}>
           <IssueForm
-            mode="create"
+            tab={tab}
             form={form}
             setForm={setForm}
-            onSave={onSaveNewIssue}
-            onCancel={onCancelEdit}
-            currentTab={tab}
-            saving={savingIssue}
-            statusOptions={statusOptions}
+            onSaveNewIssue={onSaveNewIssue}
+            onSaveEdit={onSaveEdit}
+            onCancelEdit={onCancelEdit}
+            editingId={null}
+            savingIssue={savingIssue}
+            canCreateOrEdit={canCreateOrEdit}
           />
         </div>
       )}
@@ -72,7 +77,7 @@ export default function IssueListPanel({
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
           {visibleIssues.map((issue) => {
-            const isEditing = activeEditingId === issue.id && !showTrash;
+            const isEditing = !mobileCompact && activeEditingId === issue.id && !showTrash;
             const isSelected = selectedIssueId === issue.id;
 
             return (

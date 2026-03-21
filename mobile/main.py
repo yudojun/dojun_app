@@ -961,7 +961,7 @@ class MainScreen(MDScreen):
     def on_pre_enter(self, *args):
         app = MDApp.get_running_app()
         if app:
-            Clock.schedule_once(lambda dt: app.refresh_issues(), 0.1)
+            Clock.schedule_once(lambda dt: app.refresh_issues(silent=True), 0.1)
 
 
 class UpdateHistoryScreen(MDScreen):
@@ -1910,7 +1910,7 @@ class MainApp(MDApp):
             self.user_id_token = None
             self.user_uid = None
 
-        self.refresh_issues()
+        self.refresh_issues(silent=True)
         self.update_dot_state()
         self.start_auto_refresh()
 
@@ -1955,9 +1955,9 @@ class MainApp(MDApp):
             self.stop_update_dot_animation()
 
     _refreshing = False
+    _last_issue_signature = None
 
-    def refresh_issues(self, *args):
-        # ✅ 연타 방지
+    def refresh_issues(self, *args, silent=False):
         if self._refreshing:
             print("INFO: refresh ignored (already refreshing)")
             return
@@ -1965,6 +1965,7 @@ class MainApp(MDApp):
 
         def _do_refresh(dt):
             global LOCAL_ISSUES
+
             try:
                 id_token = getattr(self, "user_id_token", None)
 
@@ -1972,53 +1973,58 @@ class MainApp(MDApp):
                     self.user_id_token, self.user_uid = firebase_anonymous_login()
                     id_token = self.user_id_token
 
-                print("AUTH used uid:", getattr(self, "user_uid", None))
-
                 fetched = fetch_public_issues(id_token)
                 print("DEBUG fetched count:", len(fetched))
 
-                old_titles = [x.get("title") for x in (LOCAL_ISSUES or [])]
-                new_titles = [x.get("title") for x in (fetched or [])]
-
-                print("DEBUG old titles:", old_titles[:5])
-                print("DEBUG new titles:", new_titles[:5])
-
                 if fetched:
-                    LOCAL_ISSUES = fetched
-                    print("INFO: LOCAL_ISSUES updated from Firestore")
+                    old_sig = self._last_issue_signature or self.build_issue_signature(LOCAL_ISSUES)
+                    new_sig = self.build_issue_signature(fetched)
+
+                    changed = old_sig != new_sig
+
+                    print("DEBUG changed:", changed)
+
+                    if changed:
+                        LOCAL_ISSUES = fetched
+                        self._last_issue_signature = new_sig
+                        print("INFO: LOCAL_ISSUES updated from Firestore")
+
+                        try:
+                            if self.root.current == "main":
+                                main = self.root.get_screen("main")
+                                main._last_loaded_tab = None
+                                main.populate_main_list()
+                        except Exception as e:
+                            print("ERROR UI update after refresh:", e)
+                    else:
+                        print("INFO: no issue changes detected")
+
                 else:
                     print("WARN: fetched empty -> keep LOCAL_ISSUES")
 
             except Exception as e:
                 print("ERROR refresh_issues:", e)
 
-            # ✅ UI 갱신은 마지막에
-            try:
-                main = self.root.get_screen("main")
-                main._last_loaded_tab = None
-                main.populate_main_list()
-            except Exception as e:
-                print("ERROR UI update after refresh:", e)
-
             self._refreshing = False
 
-        # ✅ UI 이벤트(버튼 클릭) 처리 끝난 다음 프레임에 실행
+            if not silent:
+                MDSnackbar(
+                    MDLabel(
+                        text="업데이트 완료",
+                        font_name="Nanum",
+                        font_size="13sp",
+                        max_lines=1,
+                        shorten=True,
+                        theme_text_color="Custom",
+                        text_color=(1, 1, 1, 1),
+                    ),
+                    y="10dp",
+                    pos_hint={"center_x": 0.5},
+                    size_hint_x=0.85,
+                    duration=1.0,
+                ).open()
+
         Clock.schedule_once(_do_refresh, 0)
-        MDSnackbar(
-            MDLabel(
-                text="업데이트 완료",
-                font_name="Nanum",
-                font_size="13sp",  # ✅ 이거 추가
-                max_lines=1,
-                shorten=True,
-                theme_text_color="Custom",
-                text_color=(1, 1, 1, 1),
-            ),
-            y="10dp",
-            pos_hint={"center_x": 0.5},
-            size_hint_x=0.85,
-            duration=1.2,
-        ).open()
 
     def go_history(self):
         # 히스토리 들어가면 최신 버전 읽음 처리
@@ -2938,8 +2944,8 @@ class MainApp(MDApp):
             return
 
         self._auto_refresh_event = Clock.schedule_interval(
-            lambda dt: self.refresh_issues(),
-            20
+            lambda dt: self.refresh_issues(silent=True),
+            60
         )
 
     def stop_auto_refresh(self):
@@ -2950,5 +2956,23 @@ class MainApp(MDApp):
     def on_stop(self):
          self.stop_auto_refresh()
 
+    def build_issue_signature(self, issues: list) -> list:
+        result = []
+        for item in (issues or []):
+            result.append(
+                (
+                    str(item.get("id", "")),
+                    str(item.get("title", "")),
+                    str(item.get("summary", "")),
+                    str(item.get("status", "")),
+                    str(item.get("updatedAt", "")),
+                    str(item.get("createdAt", "")),
+                    bool(item.get("active", True)),
+                    bool(item.get("isPinned", False)),
+                    str(item.get("imageUrl", "")),
+                )
+            )
+        return result
+    
 if __name__ == "__main__":
     MainApp().run()

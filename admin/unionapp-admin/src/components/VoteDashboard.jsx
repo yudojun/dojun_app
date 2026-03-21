@@ -10,28 +10,25 @@ function pct(part, total) {
 export default function VoteDashboard({
   selectedIssueId,
   selectedIssue,
-  stats,
+  stats = { yes: 0, no: 0, hold: 0, total: 0 },
   statsLoading,
   memberCount,
   formatStatus,
   statusBadgeStyle,
 }) {
-  const participation =
-    !memberCount || memberCount <= 0
-      ? 0
-      : Math.round((Number(stats.total || 0) / memberCount) * 1000) / 10;
-
-  const yesPct = pct(stats.yes, stats.total);
-  const noPct = pct(stats.no, stats.total);
-  const holdPct = pct(stats.hold, stats.total);
-
-  return (
-    <div style={ui.panel}>
-      <h3>투표 대시보드</h3>
-
-      {!selectedIssueId || !selectedIssue ? (
+  if (!selectedIssueId || !selectedIssue) {
+    return (
+      <div style={ui.panel}>
+        <h3>투표 대시보드</h3>
         <SectionCard>쟁점을 선택하면 투표 현황이 표시됩니다.</SectionCard>
-      ) : (
+      </div>
+    );
+  }
+
+  if (selectedIssue.type === "notice") {
+    return (
+      <div style={ui.panel}>
+        <h3>투표 대시보드</h3>
         <SectionCard>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ fontWeight: 900, fontSize: 18 }}>
@@ -47,31 +44,70 @@ export default function VoteDashboard({
           </div>
 
           <div style={ui.voteInfoBox}>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>참여 현황</div>
-            <div style={{ marginTop: 6, fontSize: 14, color: "#333" }}>
-              총 참여: <b>{stats.total}</b> / 조합원: <b>{memberCount}</b>
-            </div>
-            <div style={{ marginTop: 4, color: "#333" }}>
-              참여율: <b>{participation}%</b>
-            </div>
-            {statsLoading && <div style={{ marginTop: 8, color: "#777" }}>집계 로딩 중…</div>}
-          </div>
-
-          <div style={ui.chartWrap}>
-            <div style={{ fontWeight: 900, marginBottom: 10 }}>투표 그래프</div>
-            <div style={{ display: "grid", gap: 10 }}>
-              <StatRow label="찬성" value={stats.yes} percent={yesPct} />
-              <StatRow label="반대" value={stats.no} percent={noPct} />
-              <StatRow label="보류" value={stats.hold} percent={holdPct} />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 10, fontSize: 12, color: "#777", lineHeight: 1.5 }}>
-            ※ 이 화면은 <b>vote_stats</b> 집계 결과를 읽기 전용으로 표시합니다. <br />
-            결과 집계 문서는 클라이언트에서 직접 수정하지 않고, 서버 자동 집계 기준으로 관리합니다.
+            현재 선택한 항목은 <b>공지</b>라서 투표 통계가 없습니다.
           </div>
         </SectionCard>
-      )}
+      </div>
+    );
+  }
+
+  const total = Number(stats?.total || 0);
+  const yes = Number(stats?.yes || 0);
+  const no = Number(stats?.no || 0);
+  const hold = Number(stats?.hold || 0);
+
+  const participation =
+    !memberCount || memberCount <= 0
+      ? 0
+      : Math.round((total / memberCount) * 1000) / 10;
+
+  const yesPct = pct(yes, total);
+  const noPct = pct(no, total);
+  const holdPct = pct(hold, total);
+
+  return (
+    <div style={ui.panel}>
+      <h3>투표 대시보드</h3>
+
+      <SectionCard>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>
+            {selectedIssue?.title || "선택된 쟁점"}
+          </div>
+          <div style={statusBadgeStyle(selectedIssue.status || "draft")}>
+            {formatStatus(selectedIssue.status || "draft")}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 6, ...ui.mutedText }}>
+          issueId: {selectedIssueId}
+        </div>
+
+        <div style={ui.voteInfoBox}>
+          <div style={{ fontWeight: 900, fontSize: 16 }}>참여 현황</div>
+          <div style={{ marginTop: 6, fontSize: 14, color: "#333" }}>
+            총 참여: <b>{total}</b> / 조합원: <b>{memberCount}</b>
+          </div>
+          <div style={{ marginTop: 4, color: "#333" }}>
+            참여율: <b>{participation}%</b>
+          </div>
+          {statsLoading && <div style={{ marginTop: 8, color: "#777" }}>집계 로딩 중…</div>}
+        </div>
+
+        <div style={ui.chartWrap}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>투표 그래프</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            <StatRow label="찬성" value={yes} percent={yesPct} />
+            <StatRow label="반대" value={no} percent={noPct} />
+            <StatRow label="보류" value={hold} percent={holdPct} />
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 12, color: "#777", lineHeight: 1.5 }}>
+          ※ 이 화면은 <b>vote_stats</b> 집계 결과를 읽기 전용으로 표시합니다. <br />
+          결과 집계 문서는 클라이언트에서 직접 수정하지 않고, 서버 자동 집계 기준으로 관리합니다.
+        </div>
+      </SectionCard>
     </div>
   );
 }

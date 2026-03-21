@@ -1,100 +1,80 @@
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
-const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
 
 const db = admin.firestore();
 
-/**
- * ballot 값 정규화
- * 허용값:
- * - "yes"
- * - "no"
- * - "hold"
- *
- * 그 외 값은 무시
- */
-function normalizeBallotValue(data) {
-  if (!data) return null;
+function buildPushTitle(data) {
+  const rawTitle = (data.title || "").trim();
+  const isPinned = data.isPinned === true;
 
-  const raw = String(data.choice ?? data.vote ?? data.value ?? "").trim().toLowerCase();
+  if (data.type === "vote") {
+    return isPinned ? `[중요 투표] ${rawTitle}` : `[투표] ${rawTitle}`;
+  }
 
-  if (raw === "yes") return "yes";
-  if (raw === "no") return "no";
-  if (raw === "hold") return "hold";
+  if (data.type === "survey") {
+    return isPinned ? `[중요 설문] ${rawTitle}` : `[설문] ${rawTitle}`;
+  }
 
-  return null;
+  return isPinned ? `[중요 공지] ${rawTitle}` : `[공지] ${rawTitle}`;
 }
 
-/**
- * votes/{issueId}/ballots 하위 컬렉션 전체를 다시 읽어서
- * vote_stats/{issueId}를 안전하게 재작성한다.
- *
- * 이유:
- * Firestore 트리거는 at-least-once 전달이고 순서도 보장되지 않아서,
- * 증분 방식보다 전체 재계산이 더 안전하다.
- */
-async function recomputeVoteStats(issueId) {
-  const ballotsRef = db.collection("votes").doc(issueId).collection("ballots");
-  const snap = await ballotsRef.get();
+function buildPushBody(data) {
+  const summary = (data.summary || "").trim();
+  if (summary) return summary;
 
-  let yes = 0;
-  let no = 0;
-  let hold = 0;
-
-  snap.forEach((docSnap) => {
-    const choice = normalizeBallotValue(docSnap.data());
-
-    if (choice === "yes") yes += 1;
-    else if (choice === "no") no += 1;
-    else if (choice === "hold") hold += 1;
-  });
-
-  const total = yes + no + hold;
-
-  await db.collection("vote_stats").doc(issueId).set(
-    {
-      yes,
-      no,
-      hold,
-      total,
-      updated_at: admin.firestore.FieldValue.serverTimestamp()
-    },
-    { merge: true }
-  );
-
-  logger.info("vote_stats updated", { issueId, yes, no, hold, total });
+  if (data.type === "vote") return "새 투표가 시작되었습니다.";
+  if (data.type === "survey") return "새 설문이 등록되었습니다.";
+  return "새 공지가 등록되었습니다.";
 }
 
-/**
- * 조합원 투표가 생성/수정/삭제될 때마다 자동 집계
- *
- * 경로:
- * votes/{issueId}/ballots/{uid}
- */
-exports.onBallotWritten = onDocumentWritten(
+exports.sendIssueOpenPush = onDocumentWritten(
   {
-    document: "votes/{issueId}/ballots/{uid}",
+    document: "issues_public/{issueId}",
     region: "asia-northeast3",
-    memory: "256MiB",
-    timeoutSeconds: 60
   },
   async (event) => {
-    const { issueId, uid } = event.params;
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    const issueId = event.params.issueId;
 
-    try {
-      logger.info("ballot change detected", { issueId, uid });
+    if (!after) return;
 
-      await recomputeVoteStats(issueId);
-    } catch (error) {
-      logger.error("failed to recompute vote_stats", {
+    const beforeStatus = before?.status ?? null;
+    const afterStatus = after?.status ?? null;
+
+    if (afterStatus !== "open") return;
+    if (beforeStatus === "open") return;
+    if (after.pushSentAt) return;
+
+    const type = String(after.type || "notice");
+    if (!["notice", "vote", "survey"].includes(type)) return;
+
+    const title = buildPushTitle(after);
+    const body = buildPushBody(after);
+
+    await admin.messaging().send({
+      topic: "all_members",
+      data: {
+        type,
         issueId,
-        uid,
-        message: error?.message,
-        stack: error?.stack
-      });
-      throw error;
-    }
+        title,
+        body,
+        scope: String(after.scope || "전체"),
+        status: String(after.status || "open"),
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "unionapp_default",
+          clickAction: "OPEN_ISSUE_DETAIL",
+        },
+      },
+    });
+
+    await db.collection("issues_public").doc(issueId).update({
+      pushSentAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
   }
 );

@@ -23,6 +23,15 @@ export const ui = {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
+    alignItems: "center",
+  },
+
+  topActions: {
+    marginTop: 12,
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    alignItems: "center",
   },
 
   tabGroup: {
@@ -36,6 +45,15 @@ export const ui = {
     display: "grid",
     gridTemplateColumns: "1fr 180px 150px",
     gap: 10,
+    alignItems: "center",
+  },
+
+  filterBar: {
+    marginTop: 14,
+    display: "grid",
+    gridTemplateColumns: "1fr 180px",
+    gap: 10,
+    alignItems: "center",
   },
 
   mainGrid: {
@@ -46,34 +64,54 @@ export const ui = {
     minWidth: 0,
   },
 
+  layout: {
+    display: "grid",
+    gridTemplateColumns: "1.15fr 0.85fr",
+    gap: 16,
+    marginTop: 18,
+    minWidth: 0,
+  },
+
+  leftPane: {
+    minWidth: 0,
+  },
+
+  rightPane: {
+    minWidth: 0,
+  },
+
   panel: {
     minWidth: 0,
   },
 
   sectionCard: {
     padding: 14,
-    border: "1px solid #ddd",
-    borderRadius: 12,
-    background: "#fff",
+    border: "1px solid #d8dee8",
+    borderRadius: 14,
+    background: "#ffffff",
     boxSizing: "border-box",
+    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.04)",
   },
 
   issueCard: {
-    border: "1px solid #ddd",
-    borderRadius: 12,
+    border: "1px solid #d8dee8",
+    borderRadius: 14,
     padding: 14,
-    background: "#fff",
+    background: "#ffffff",
     boxSizing: "border-box",
     minWidth: 0,
+    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.04)",
+    cursor: "pointer",
   },
 
   issueCardSelected: {
     border: "2px solid #2d8cff",
+    boxShadow: "0 0 0 3px rgba(45, 140, 255, 0.12)",
   },
 
   formWrap: {
     border: "2px solid #2d8cff",
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 20,
     background: "#f8fbff",
     boxSizing: "border-box",
@@ -92,6 +130,7 @@ export const ui = {
     fontSize: 15,
     color: "#1f3b64",
     marginBottom: 6,
+    display: "block",
   },
 
   input: {
@@ -99,6 +138,21 @@ export const ui = {
     padding: 12,
     fontSize: 16,
     boxSizing: "border-box",
+    border: "1px solid #cfd8e3",
+    borderRadius: 10,
+    background: "#ffffff",
+    color: "#111827",
+  },
+
+  select: {
+    width: "100%",
+    padding: 12,
+    fontSize: 16,
+    boxSizing: "border-box",
+    border: "1px solid #cfd8e3",
+    borderRadius: 10,
+    background: "#ffffff",
+    color: "#111827",
   },
 
   textarea: {
@@ -108,6 +162,12 @@ export const ui = {
     resize: "vertical",
     boxSizing: "border-box",
     minHeight: 130,
+    border: "1px solid #cfd8e3",
+    borderRadius: 10,
+    background: "#ffffff",
+    color: "#111827",
+    fontFamily: "inherit",
+    lineHeight: 1.5,
   },
 
   formGrid: {
@@ -139,26 +199,76 @@ export const ui = {
     display: "flex",
     gap: 8,
     flexWrap: "wrap",
+    alignItems: "center",
   },
 
   formActions: {
     marginTop: 18,
     display: "flex",
     gap: 10,
+    flexWrap: "wrap",
+  },
+
+  buttonRow: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+
+  button: {
+    padding: "9px 12px",
+    border: "1px solid #cfd8e3",
+    borderRadius: 10,
+    background: "#ffffff",
+    color: "#111827",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  primaryButton: {
+    padding: "9px 12px",
+    border: "1px solid #2563eb",
+    borderRadius: 10,
+    background: "#2563eb",
+    color: "#ffffff",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  tabButton: {
+    padding: "9px 12px",
+    border: "1px solid #cfd8e3",
+    borderRadius: 10,
+    background: "#ffffff",
+    color: "#111827",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  activeTabButton: {
+    padding: "9px 12px",
+    border: "1px solid #2563eb",
+    borderRadius: 10,
+    background: "#dbeafe",
+    color: "#1d4ed8",
+    fontWeight: 800,
+    cursor: "pointer",
   },
 
   metaText: {
-    color: "#777",
+    color: "#6b7280",
     marginTop: 4,
   },
 
   uidText: {
-    color: "#555",
+    color: "#4b5563",
   },
 
   subText: {
     color: "#666",
     marginTop: 6,
+    lineHeight: 1.5,
   },
 
   mutedText: {
@@ -172,16 +282,11 @@ export const ui = {
     borderRadius: 10,
     background: "#f7f9ff",
     boxSizing: "border-box",
+    border: "1px solid #dbe4f0",
   },
 
   chartWrap: {
     marginTop: 16,
-  },
-
-  buttonRow: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
   },
 
   badgeBase: {
@@ -190,6 +295,7 @@ export const ui = {
     borderRadius: 999,
     fontWeight: 800,
     fontSize: 12,
+    lineHeight: 1.2,
   },
 
   toastWrap: {
@@ -256,9 +362,10 @@ export const ui = {
 export function getStatusBadgeStyle(status) {
   const map = {
     draft: { bg: "#f3f4f6", color: "#374151" },
+    review: { bg: "#fef3c7", color: "#92400e" },
     open: { bg: "#e0f2fe", color: "#075985" },
-    closed: { bg: "#fef3c7", color: "#92400e" },
-    archived: { bg: "#ede9fe", color: "#5b21b6" },
+    closed: { bg: "#ede9fe", color: "#5b21b6" },
+    archived: { bg: "#fce7f3", color: "#9d174d" },
   };
 
   const picked = map[status] || map.draft;
