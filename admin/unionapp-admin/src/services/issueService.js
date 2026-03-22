@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   getDoc,
   onSnapshot,
   orderBy,
@@ -41,7 +42,30 @@ export function subscribeIssues(tab, onData, onError) {
   return onSnapshot(
     q,
     (snap) => {
-      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const rows = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          ...data,
+          id: d.id,                     // ✅ 로직용: 항상 Firestore 문서 ID
+          docId: d.id,                  // ✅ 필요하면 계속 사용
+          displayId: data.id || d.id,   // ✅ 화면 표시용
+        };
+      });
+
+      console.log(
+        "subscribeIssues rows:",
+        JSON.stringify(
+          rows.map((it) => ({
+            id: it.id,
+            docId: it.docId,
+            displayId: it.displayId,
+            title: it.title,
+          })),
+          null,
+          2
+        )
+      );
+
       onData(rows);
     },
     onError
@@ -345,14 +369,70 @@ export async function changeIssueStatus(tab, issueId, nextStatus, actorUid) {
   await syncVoteDocForPublicIssue(tab, issueId, nextIssuePayload, actorUid);
 }
 
-export async function reorderIssues(tab, issues) {
+export async function reorderIssues(tab, issues, actorUid) {
   const col = getIssueCollection(tab);
+
+  if (!actorUid) {
+    throw new Error("순번 정리에 필요한 사용자 UID가 없습니다.");
+  }
+
+  // 1) 실제 Firestore에 존재하는 문서 ID 다시 조회
+  const snap = await getDocs(query(collection(db, col), orderBy("order", "asc")));
+  const existingIds = new Set(snap.docs.map((d) => d.id));
+
+  // 2) 존재하는 문서만 남김
+  const safeIssues = issues.filter((it) => existingIds.has(it.docId || it.id));
+  const missingIssues = issues.filter((it) => !existingIds.has(it.docId || it.id));
+
+  console.log(
+    "reorderIssues existingIds:",
+    JSON.stringify([...existingIds], null, 2)
+  );
+
+  console.log(
+    "reorderIssues safeIssues:",
+    JSON.stringify(
+      safeIssues.map((it, index) => ({
+        index,
+        id: it.id,
+        docId: it.docId,
+        displayId: it.displayId,
+        title: it.title,
+      })),
+      null,
+      2
+    )
+  );
+
+  console.warn(
+    "reorderIssues missingIssues:",
+    JSON.stringify(
+      missingIssues.map((it, index) => ({
+        index,
+        id: it.id,
+        docId: it.docId,
+        displayId: it.displayId,
+        title: it.title,
+      })),
+      null,
+      2
+    )
+  );
+
+  if (safeIssues.length === 0) {
+    throw new Error("정리할 수 있는 유효 문서가 없습니다.");
+  }
+
+  // 3) 실제 존재하는 문서만 순번 재정렬
   const batch = writeBatch(db);
 
-  issues.forEach((it, index) => {
-    batch.update(doc(db, col, it.id), {
+  safeIssues.forEach((it, index) => {
+    const targetId = it.docId || it.id;
+
+    batch.update(doc(db, col, targetId), {
       order: index + 1,
       updatedAt: serverTimestamp(),
+      updatedBy: actorUid,
     });
   });
 

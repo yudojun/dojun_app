@@ -1,4 +1,3 @@
-import { useMemo, useState } from "react";
 import IssueForm from "./IssueForm";
 import { ui } from "../styles/ui";
 import { isVisibleOnMobile, formatMobileVisibility } from "../hooks/useIssues";
@@ -81,25 +80,25 @@ const local = {
     gap: 8,
   },
   button: {
-    minHeight: 46,
-    padding: "10px 12px",
+    minHeight: 42,
+    padding: "8px 12px",
     border: "1px solid #cfd8e3",
     borderRadius: 10,
     background: "#fff",
     color: "#111827",
     fontWeight: 800,
-    fontSize: 15,
+    fontSize: 14,
     cursor: "pointer",
   },
   dangerButton: {
-    minHeight: 46,
-    padding: "10px 12px",
+    minHeight: 42,
+    padding: "8px 10px",
     border: "1px solid #fecaca",
     borderRadius: 10,
     background: "#fff1f2",
     color: "#b91c1c",
     fontWeight: 800,
-    fontSize: 15,
+    fontSize: 14,
     cursor: "pointer",
   },
   statusSelectWrap: {
@@ -111,23 +110,11 @@ const local = {
     fontWeight: 700,
     color: "#475569",
   },
-  toggleRow: {
+  compactSummary: {
     marginTop: 10,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8,
-  },
-  toggleButton: {
-    minHeight: 40,
-    padding: "8px 12px",
-    border: "1px solid #dbe4f0",
-    borderRadius: 10,
-    background: "#f8fbff",
-    color: "#1d4ed8",
-    fontWeight: 800,
-    fontSize: 14,
-    cursor: "pointer",
+    color: "#475569",
+    lineHeight: 1.55,
+    fontSize: 15,
   },
 };
 
@@ -156,7 +143,6 @@ export default function IssueCard({
   canHardDelete,
 }) {
   const isMobile = getIsMobile();
-  const [expanded, setExpanded] = useState(false);
 
   const cardStyle =
     isSelected && !showTrash
@@ -164,55 +150,153 @@ export default function IssueCard({
       : ui.issueCard || {};
 
   const isLocked = !!savingIssue;
-  const canSelectCard = !showTrash && !isEditing && !isLocked;
   const currentStatus = issue.status || "draft";
   const mobileVisible = isVisibleOnMobile(issue);
-
-  const shouldShowDetails = useMemo(() => {
-    if (isEditing) return true;
-    if (!isMobile) return true;
-    return expanded;
-  }, [isEditing, isMobile, expanded]);
-
-  const handleCardClick = () => {
-    if (!canSelectCard) return;
-    onSelectIssue(issue.id);
-  };
 
   const stopClick = (e) => {
     e.stopPropagation();
   };
 
-  return (
-    <div style={cardStyle} onClick={handleCardClick}>
-      {!isEditing ? (
-        <>
-          <div style={local.headerRow}>
-            <div style={local.title}>{issue.title || "(제목 없음)"}</div>
+  const openDetail = (e) => {
+    e.stopPropagation();
+    onSelectIssue(issue.id);
+  };
 
-            <div style={typeBadgeStyle(issue.type || "notice")}>
-              {formatType(issue.type || "notice")}
+  if (isEditing) {
+    return (
+      <div style={cardStyle} onClick={stopClick}>
+        <IssueForm
+          tab={tab}
+          form={form}
+          setForm={setForm}
+          onSaveNewIssue={() => {}}
+          onSaveEdit={onSaveEdit}
+          onCancelEdit={onCancelEdit}
+          editingId={issue.id}
+          savingIssue={savingIssue}
+          canCreateOrEdit={canEdit}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={cardStyle}
+      onClick={openDetail}
+    >
+      <div style={local.headerRow}>
+        <div style={local.title}>{issue.title || "(제목 없음)"}</div>
+
+        <div style={typeBadgeStyle(issue.type || "notice")}>
+          {formatType(issue.type || "notice")}
+        </div>
+
+        {!isMobile && (
+          <div style={statusBadgeStyle(currentStatus)}>
+            {formatStatus(currentStatus)}
+          </div>
+        )}
+
+        {!!issue.isPinned && (
+          <div style={pillStyle("#fef3c7", "#92400e")}>상단 고정</div>
+        )}
+      </div>
+
+      {isMobile ? (
+        <>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              gap: 6,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div style={mobileVisibilityBadgeStyle(issue)}>
+              {formatMobileVisibility(issue)}
             </div>
 
             <div style={statusBadgeStyle(currentStatus)}>
               {formatStatus(currentStatus)}
             </div>
-
-            {!showTrash && (
-              <div style={mobileVisibilityBadgeStyle(issue)}>
-                {formatMobileVisibility(issue)}
-              </div>
-            )}
-
-            {!!issue.isPinned && (
-              <div style={pillStyle("#fef3c7", "#92400e")}>상단 고정</div>
-            )}
           </div>
 
-          <div style={local.idText}>id: {issue.id}</div>
+          {!isMobile && (
+            <div style={local.idText}>
+              id: {issue.displayId || issue.id}
+            </div>
+          )}
+
+          <div style={local.compactSummary}>
+            {previewText(issue.summary, 32) || "(요약 없음)"}
+          </div>
+
+          {!showTrash ? (
+            <div style={local.actionWrap} onClick={stopClick}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr",
+                  gap: 8,
+                }}
+              >
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStartEdit(issue);
+                    }}
+                    disabled={isLocked}
+                    style={local.button}
+                  >
+                    편집
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={local.secondaryActions} onClick={stopClick}>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestore(issue.id);
+                  }}
+                  disabled={isLocked}
+                  style={local.button}
+                >
+                  복구
+                </button>
+              )}
+
+              {canHardDelete && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onHardDelete(issue.id);
+                  }}
+                  disabled={isLocked}
+                  style={local.dangerButton}
+                >
+                  영구 삭제
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ marginTop: 6, ...ui.mutedText }}>
+            id: {issue.id}
+          </div>
 
           <div style={ui.subText || { marginTop: 6, color: "#6b7280" }}>
-            요약: {shouldShowDetails ? (issue.summary || "(없음)") : previewText(issue.summary, 60) || "(없음)"}
+            요약: {previewText(issue.summary, 120)}
           </div>
 
           {!showTrash && (
@@ -230,92 +314,71 @@ export default function IssueCard({
             </div>
           )}
 
-          {isMobile && !isEditing && (
-            <div style={local.toggleRow} onClick={stopClick}>
-              <button
-                type="button"
-                style={local.toggleButton}
-                onClick={() => setExpanded((prev) => !prev)}
-              >
-                {expanded ? "상세 접기" : "상세 보기"}
-              </button>
+          <div style={local.infoLine}>
+            <b>본문</b>: {previewText(issue.content, 80) || "(없음)"}
+          </div>
 
-              <div style={ui.mutedText || { color: "#888", fontSize: 12 }}>
-                순서: {issue.order ?? "(없음)"}
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={openDetail}
+              style={{
+                padding: "6px 10px",
+                fontSize: 13,
+                borderRadius: 8,
+                border: "1px solid #ddd",
+                background: "#f8f8f8",
+                cursor: "pointer",
+              }}
+            >
+              열기
+            </button>
+          </div>
+
+          {issue.type === "vote" || issue.type === "survey" ? (
+            <>
+              <div style={local.infoLine}>
+                <b>선택지 수</b>: {Array.isArray(issue.options) ? issue.options.length : 0}
               </div>
+              <div style={local.infoLine}>
+                <b>복수 선택</b>: {issue.multiple ? "허용" : "단일"}
+              </div>
+              <div style={local.infoLine}>
+                <b>최대 선택</b>: {issue.maxSelections ?? 1}
+              </div>
+              <div style={local.infoLine}>
+                <b>결과 공개</b>: {issue.resultVisibility || "after_close"}
+              </div>
+            </>
+          ) : (
+            <div style={local.infoLine}>
+              <b>이미지</b>: {issue.imageUrl ? "있음" : "없음"}
             </div>
           )}
 
-          {shouldShowDetails && (
-            <>
-              <div style={local.infoLine}>
-                <b>본문</b>: {previewText(issue.content, 80) || "(없음)"}
-              </div>
-
-              <div style={{ marginTop: 8 }}>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    alert(issue.content || "본문이 없습니다.");
-                  }}
-                  style={{
-                    padding: "6px 10px",
-                    fontSize: 13,
-                    borderRadius: 8,
-                    border: "1px solid #ddd",
-                    background: "#f8f8f8",
-                    cursor: "pointer",
-                  }}
-                >
-                  상세 보기
-                </button>
-              </div>
-
-              {issue.type === "vote" || issue.type === "survey" ? (
-                <>
-                  <div style={local.infoLine}>
-                    <b>선택지 수</b>: {Array.isArray(issue.options) ? issue.options.length : 0}
-                  </div>
-                  <div style={local.infoLine}>
-                    <b>복수 선택</b>: {issue.multiple ? "허용" : "단일"}
-                  </div>
-                  <div style={local.infoLine}>
-                    <b>최대 선택</b>: {issue.maxSelections ?? 1}
-                  </div>
-                  <div style={local.infoLine}>
-                    <b>결과 공개</b>: {issue.resultVisibility || "after_close"}
-                  </div>
-                </>
-              ) : (
-                <div style={local.infoLine}>
-                  <b>이미지</b>: {issue.imageUrl ? "있음" : "없음"}
-                </div>
-              )}
-
-              <div style={local.infoLine}>
-                <b>구분</b>: {tab === "private" ? "내부 안건" : "공개 안건"}
-              </div>
-              <div style={local.infoLine}>
-                <b>상태</b>: {formatStatus(currentStatus)}
-              </div>
-              <div style={local.infoLine}>
-                <b>활성</b>: {issue.active === false ? "비활성" : "활성"}
-              </div>
-
-              {!isMobile && (
-                <div style={{ marginTop: 8, ...(ui.mutedText || {}) }}>
-                  순서: {issue.order ?? "(없음)"}
-                </div>
-              )}
-            </>
-          )}
+          <div style={local.infoLine}>
+            <b>구분</b>: {tab === "private" ? "내부 안건" : "공개 안건"}
+          </div>
+          <div style={local.infoLine}>
+            <b>상태</b>: {formatStatus(currentStatus)}
+          </div>
+          <div style={local.infoLine}>
+            <b>활성</b>: {issue.active === false ? "비활성" : "활성"}
+          </div>
+          <div style={{ marginTop: 8, ...(ui.mutedText || {}) }}>
+            순서: {issue.order ?? "(없음)"}
+          </div>
 
           {!showTrash ? (
             canEdit && (
               <div style={local.actionWrap} onClick={stopClick}>
                 <div style={local.primaryActions}>
                   <button
-                    onClick={() => onStartEdit(issue)}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStartEdit(issue);
+                    }}
                     disabled={isLocked}
                     style={local.button}
                   >
@@ -323,7 +386,11 @@ export default function IssueCard({
                   </button>
 
                   <button
-                    onClick={() => onArchive(issue.id)}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArchive(issue.id);
+                    }}
                     disabled={isLocked}
                     style={local.button}
                   >
@@ -356,7 +423,11 @@ export default function IssueCard({
             <div style={local.secondaryActions} onClick={stopClick}>
               {canEdit && (
                 <button
-                  onClick={() => onRestore(issue.id)}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestore(issue.id);
+                  }}
                   disabled={isLocked}
                   style={local.button}
                 >
@@ -366,7 +437,11 @@ export default function IssueCard({
 
               {canHardDelete && (
                 <button
-                  onClick={() => onHardDelete(issue.id)}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onHardDelete(issue.id);
+                  }}
                   disabled={isLocked}
                   style={local.dangerButton}
                 >
@@ -376,20 +451,6 @@ export default function IssueCard({
             </div>
           )}
         </>
-      ) : (
-        <div onClick={stopClick}>
-          <IssueForm
-            tab={tab}
-            form={form}
-            setForm={setForm}
-            onSaveNewIssue={() => {}}
-            onSaveEdit={onSaveEdit}
-            onCancelEdit={onCancelEdit}
-            editingId={issue.id}
-            savingIssue={savingIssue}
-            canCreateOrEdit={canEdit}
-          />
-        </div>
       )}
     </div>
   );

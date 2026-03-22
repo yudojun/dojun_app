@@ -409,7 +409,23 @@ export default function useIssues({
         order: index + 1,
       }));
 
-      await reorderIssues(tab, normalized);
+      console.log(
+      "normalizeIssueOrders normalized full:",
+      JSON.stringify(
+        normalized.map((it, index) => ({
+          index,
+          id: it.id,
+          docId: it.docId,
+          displayId: it.displayId,
+          title: it.title,
+          status: it.status,
+          order: it.order,
+        })),
+        null,
+        2
+      )
+    );
+      await reorderIssues(tab, normalized, uid);
     } catch (error) {
       console.error("안건 순서 재정렬 실패:", error);
       throw error;

@@ -135,8 +135,8 @@ export const ui = {
 
   input: {
     width: "100%",
-    padding: 12,
-    fontSize: 16,
+    padding: "8px 10px",
+    fontSize: 14,
     boxSizing: "border-box",
     border: "1px solid #cfd8e3",
     borderRadius: 10,
@@ -146,8 +146,8 @@ export const ui = {
 
   select: {
     width: "100%",
-    padding: 12,
-    fontSize: 16,
+    padding: "8px 10px",
+    fontSize: 14,
     boxSizing: "border-box",
     border: "1px solid #cfd8e3",
     borderRadius: 10,
@@ -217,43 +217,47 @@ export const ui = {
   },
 
   button: {
-    padding: "9px 12px",
+    padding: "5px 8px",
     border: "1px solid #cfd8e3",
     borderRadius: 10,
     background: "#ffffff",
     color: "#111827",
     fontWeight: 700,
     cursor: "pointer",
+    fontSize: 13,
   },
 
   primaryButton: {
-    padding: "9px 12px",
+    padding: "5px 8px",
     border: "1px solid #2563eb",
     borderRadius: 10,
     background: "#2563eb",
     color: "#ffffff",
     fontWeight: 800,
     cursor: "pointer",
+    fontSize: 13,
   },
 
   tabButton: {
-    padding: "9px 12px",
+    padding: "5px 8px",
     border: "1px solid #cfd8e3",
     borderRadius: 10,
     background: "#ffffff",
     color: "#111827",
     fontWeight: 700,
     cursor: "pointer",
+    fontSize: 13,
   },
 
   activeTabButton: {
-    padding: "9px 12px",
+    padding: "5px 8px",
     border: "1px solid #2563eb",
     borderRadius: 10,
     background: "#dbeafe",
     color: "#1d4ed8",
     fontWeight: 800,
     cursor: "pointer",
+    fontSize: 13,
   },
 
   metaText: {

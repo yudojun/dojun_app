@@ -75,14 +75,14 @@ export default function IssueListPanel({
           </div>
         </SectionCard>
       ) : (
-        <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 6 }}>
           {visibleIssues.map((issue) => {
             const isEditing = !mobileCompact && activeEditingId === issue.id && !showTrash;
             const isSelected = selectedIssueId === issue.id;
 
             return (
               <IssueCard
-                key={issue.id}
+                key={issue.docId || issue.id}
                 issue={issue}
                 isEditing={isEditing}
                 isSelected={isSelected}

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import IssueListPanel from "./components/IssueListPanel";
+import IssueDetailPanel from "./components/IssueDetailPanel";
 import VoteDashboard from "./components/VoteDashboard";
+import IssueForm from "./components/IssueForm";
 import Toast from "./components/Toast";
 import ConfirmDialog from "./components/ConfirmDialog";
 import useAdminAuth from "./hooks/useAdminAuth";
@@ -23,6 +25,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [toasts, setToasts] = useState([]);
+  const [mobileView, setMobileView] = useState("list");
 
   const [publicIssues, setPublicIssues] = useState([]);
   const [privateIssues, setPrivateIssues] = useState([]);
@@ -395,42 +398,18 @@ export default function App() {
             flexWrap: "wrap",
           }}
         >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: isMobile ? 26 : 40,
-                lineHeight: 1.15,
-                fontWeight: 900,
-                color: "#1f344d",
-              }}
-            >
-              unionapp 관리자
-            </h2>
-
-            <div
-              style={{
-                marginTop: 6,
-                fontSize: isMobile ? 13 : 16,
-                color: "#64748b",
-                lineHeight: 1.4,
-              }}
-            >
-              UID: {user.uid}
-            </div>
-
-            <div
-              style={{
-                marginTop: 2,
-                fontSize: isMobile ? 13 : 16,
-                color: "#64748b",
-                lineHeight: 1.4,
-              }}
-            >
-              관리자: {adminDoc?.displayName || adminDoc?.name || "(이름 없음)"} / role:{" "}
-              {adminDoc?.role || "?"}
-            </div>
+          <div style={{ fontWeight: 900, fontSize: isMobile ? 18 : 24 }}>
+            unionapp 관리자
           </div>
+
+          {!isMobile && (
+            <>
+              <div>UID: {user.uid}</div>
+              <div>
+                관리자: {adminDoc?.displayName} / role: {adminDoc?.role}
+              </div>
+            </>
+          )}
 
           {!isMobile && (
             <button onClick={handleLogout} style={ui.button}>
@@ -441,56 +420,78 @@ export default function App() {
 
         <div
           style={{
-            marginTop: 12,
+            marginTop: 8,
             display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
+            gap: isMobile ? 4 : 8,
+            flexWrap: isMobile ? "nowrap" : "wrap",
             alignItems: "center",
+            overflowX: isMobile ? "auto" : "visible",
+            WebkitOverflowScrolling: "touch",
+            paddingBottom: isMobile ? 2 : 0,
           }}
         >
           <button
             onClick={() => setTab("public")}
             style={tab === "public" ? ui.activeTabButton : ui.tabButton}
           >
-            공개 안건
+            {isMobile ? "공개" : "공개 안건"}
           </button>
 
           <button
             onClick={() => setTab("private")}
             style={tab === "private" ? ui.activeTabButton : ui.tabButton}
           >
-            내부 안건
-          </button>
-
-          <button onClick={() => setShowTrash((prev) => !prev)} style={ui.button}>
-            {showTrash ? "보관함 숨기기" : "보관함 보기"}
+            {isMobile ? "내부" : "내부 안건"}
           </button>
 
           <button
-            onClick={startCreate}
+            onClick={() => setShowTrash((prev) => !prev)}
+            style={ui.button}
+          >
+            {showTrash
+              ? isMobile
+                ? "해제"
+                : "보관함 숨기기"
+              : isMobile
+                ? "보관"
+                : "보관함 보기"}
+          </button>
+
+          <button
+            onClick={() => {
+              startCreate();
+              if (isMobile) {
+                setMobileView("editor");
+              }
+            }}
             style={ui.primaryButton}
             disabled={isBusy || !isEditor}
           >
-            + 안건 추가
+            {isMobile ? "+추가" : "+ 안건 추가"}
           </button>
 
-          <button onClick={handleNormalizeIssueOrders} style={ui.button} disabled={isBusy}>
-            순번 정리
+          <button
+            onClick={handleNormalizeIssueOrders}
+            style={ui.button}
+            disabled={isBusy}
+          >
+            {isMobile ? "정리" : "순번 정리"}
           </button>
 
-          {isMobile && (
-            <button onClick={handleLogout} style={ui.button}>
-              로그아웃
-            </button>
-          )}
+          <button
+            onClick={handleLogout}
+            style={ui.button}
+          >
+            {isMobile ? "로그아웃" : "로그아웃"}
+          </button>
         </div>
 
         <div
           style={{
-            marginTop: 10,
+            marginTop: 8,
             display: "grid",
-            gridTemplateColumns: isMobile ? "1fr 150px" : "1fr 180px",
-            gap: 8,
+            gridTemplateColumns: isMobile ? "1fr 120px" : "1fr 180px",
+            gap: isMobile ? 6 : 8,
             alignItems: "center",
           }}
         >
@@ -500,8 +501,9 @@ export default function App() {
             onChange={(e) => setSearchText(e.target.value)}
             style={{
               ...ui.input,
-              padding: isMobile ? 10 : 12,
-              fontSize: isMobile ? 15 : 16,
+              padding: isMobile ? "8px 10px" : "12px",
+              fontSize: isMobile ? 14 : 16,
+              minHeight: isMobile ? 38 : "auto",
             }}
           />
 
@@ -510,8 +512,9 @@ export default function App() {
             onChange={(e) => setStatusFilter(e.target.value)}
             style={{
               ...ui.select,
-              padding: isMobile ? 10 : 12,
-              fontSize: isMobile ? 15 : 16,
+              padding: isMobile ? "8px 10px" : "12px",
+              fontSize: isMobile ? 14 : 16,
+              minHeight: isMobile ? 38 : "auto",
             }}
           >
             <option value="all">전체 상태</option>
@@ -524,16 +527,18 @@ export default function App() {
         </div>
 
         {isMobile && (
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 6 }}>
             <button
-              onClick={() => setShowDashboardMobile((prev) => !prev)}
+              onClick={() =>
+                setMobileView((prev) => (prev === "dashboard" ? "list" : "dashboard"))
+              }
               style={{
                 ...ui.button,
-                padding: "8px 12px",
-                fontSize: 15,
+                padding: isMobile ? "4px 8px" : ui.button.padding,
+                fontSize: isMobile ? 13 : ui.button.fontSize,
               }}
             >
-              {showDashboardMobile ? "대시보드 숨기기" : "대시보드 보기"}
+              {mobileView === "dashboard" ? "목록" : "대시보드"}
             </button>
           </div>
         )}
@@ -549,9 +554,134 @@ export default function App() {
           }}
         >
           {isMobile ? (
-            <div style={{ display: "grid", gap: 14 }}>
-              {showDashboardMobile && (
+            <div style={{ paddingTop: 16 }}>
+              {mobileView === "list" && (
+                <div style={ui.leftPane}>
+                  <IssueListPanel
+                    tab={tab}
+                    tabTitle={tabTitle}
+                    showTrash={showTrash}
+                    visibleIssues={visibleIssues}
+                    selectedIssueId={selectedIssueId}
+                    editingId={editingId}
+                    isCreating={isCreating}
+                    createTargetTab={createTargetTab}
+                    form={form}
+                    setForm={setForm}
+                    onSaveNewIssue={handleSaveNewIssue}
+                    onSaveEdit={handleSaveEdit}
+                    onCancelEdit={cancelEdit}
+                    onStartEdit={startEdit}
+                    onArchive={handleArchiveIssue}
+                    onRestore={handleRestoreIssue}
+                    onHardDelete={handleHardDeleteIssue}
+                    onChangeStatus={handleIssueStatusChange}
+                    onSelectIssue={(id) => {
+                      setSelectedIssueId(id);
+                      setMobileView("detail");
+                    }}
+                    savingIssue={savingIssue}
+                    statusOptions={STATUS_OPTIONS}
+                    formatStatus={formatStatus}
+                    statusBadgeStyle={statusBadgeStyle}
+                    formatType={formatType}
+                    typeBadgeStyle={typeBadgeStyle}
+                    canCreateOrEdit={isEditor}
+                    canHardDelete={isSuperAdmin}
+                  />
+                </div>
+              )}
+
+              {mobileView === "detail" && (
                 <div style={ui.rightPane}>
+                  <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      onClick={() => setMobileView("list")}
+                      style={ui.button}
+                    >
+                      목록
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (selectedIssue) {
+                          startEdit(selectedIssue);
+                          setMobileView("editor");
+                        }
+                      }}
+                      style={ui.primaryButton}
+                      disabled={!selectedIssue || !isEditor}
+                    >
+                      편집
+                    </button>
+                  </div>
+
+                  <IssueDetailPanel
+                    issue={selectedIssue}
+                    tab={tab}
+                    onArchive={handleArchiveIssue}
+                    onRestore={handleRestoreIssue}
+                    onHardDelete={handleHardDeleteIssue}
+                    onChangeStatus={handleIssueStatusChange}
+                    formatStatus={formatStatus}
+                    statusBadgeStyle={statusBadgeStyle}
+                    formatType={formatType}
+                    typeBadgeStyle={typeBadgeStyle}
+                    canEdit={isEditor}
+                    canHardDelete={isSuperAdmin}
+                    showTrash={showTrash}
+                  />
+                </div>
+              )}
+
+              {mobileView === "editor" && (
+                <div style={ui.rightPane}>
+                  <div style={{ marginBottom: 12 }}>
+                    <button
+                      onClick={() => {
+                        cancelEdit();
+                        setMobileView("list");
+                      }}
+                      style={ui.button}
+                    >
+                      목록으로 돌아가기
+                    </button>
+                  </div>
+
+                  <IssueForm
+                    tab={tab}
+                    form={form}
+                    setForm={setForm}
+                    onSaveNewIssue={async () => {
+                      await handleSaveNewIssue();
+                      setMobileView("list");
+                    }}
+                    onSaveEdit={async () => {
+                      await handleSaveEdit();
+                      setMobileView("list");
+                    }}
+                    onCancelEdit={() => {
+                      cancelEdit();
+                      setMobileView("list");
+                    }}
+                    editingId={editingId}
+                    savingIssue={savingIssue}
+                    canCreateOrEdit={isEditor}
+                  />
+                </div>
+              )}
+
+              {mobileView === "dashboard" && (
+                <div style={ui.rightPane}>
+                  <div style={{ marginBottom: 12 }}>
+                    <button
+                      onClick={() => setMobileView("list")}
+                      style={ui.button}
+                    >
+                      목록
+                    </button>
+                  </div>
+
                   <VoteDashboard
                     selectedIssueId={selectedIssueId}
                     selectedIssue={selectedIssue}
@@ -563,38 +693,6 @@ export default function App() {
                   />
                 </div>
               )}
-
-              <div style={ui.leftPane}>
-                <IssueListPanel
-                  tab={tab}
-                  tabTitle={tabTitle}
-                  showTrash={showTrash}
-                  visibleIssues={visibleIssues}
-                  selectedIssueId={selectedIssueId}
-                  editingId={editingId}
-                  isCreating={isCreating}
-                  createTargetTab={createTargetTab}
-                  form={form}
-                  setForm={setForm}
-                  onSaveNewIssue={handleSaveNewIssue}
-                  onSaveEdit={handleSaveEdit}
-                  onCancelEdit={cancelEdit}
-                  onStartEdit={startEdit}
-                  onArchive={handleArchiveIssue}
-                  onRestore={handleRestoreIssue}
-                  onHardDelete={handleHardDeleteIssue}
-                  onChangeStatus={handleIssueStatusChange}
-                  onSelectIssue={setSelectedIssueId}
-                  savingIssue={savingIssue}
-                  statusOptions={STATUS_OPTIONS}
-                  formatStatus={formatStatus}
-                  statusBadgeStyle={statusBadgeStyle}
-                  formatType={formatType}
-                  typeBadgeStyle={typeBadgeStyle}
-                  canCreateOrEdit={isEditor}
-                  canHardDelete={isSuperAdmin}
-                />
-              </div>
             </div>
           ) : (
             <div style={ui.layout}>
@@ -618,7 +716,10 @@ export default function App() {
                   onRestore={handleRestoreIssue}
                   onHardDelete={handleHardDeleteIssue}
                   onChangeStatus={handleIssueStatusChange}
-                  onSelectIssue={setSelectedIssueId}
+                  onSelectIssue={(id) => {
+                    setSelectedIssueId(id);
+                    setMobileView("detail");
+                  }}
                   savingIssue={savingIssue}
                   statusOptions={STATUS_OPTIONS}
                   formatStatus={formatStatus}
@@ -654,7 +755,7 @@ export default function App() {
         confirmText={confirmState.confirmText}
         cancelText={confirmState.cancelText}
         danger={confirmState.danger}
-        onClose={closeConfirm}
+        onCancel={closeConfirm}
         onConfirm={handleConfirm}
       />
     </>
