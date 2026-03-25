@@ -33,18 +33,34 @@ ScreenManager:
                     title: ""
                     elevation: 0
                     md_bg_color: 0.13, 0.58, 0.92, 1
-                    left_action_items: [["history", lambda x: app.go_history()]]
-                    right_action_items: [["refresh", lambda x: app.refresh_issues()]]
 
-                MDIcon:
-                    id: update_dot
-                    icon: "circle"
+                MDIconButton:
+                    icon: "history"
                     theme_text_color: "Custom"
-                    text_color: 1, 0.2, 0.2, 1
-                    opacity: 0
-                    pos_hint: {"right": 0.98, "top": 0.80}
-                    font_size: "12sp"
-                    disabled: True
+                    text_color: 1, 1, 1, 1
+                    pos_hint: {"x": 0.01, "center_y": 0.5}
+                    on_release: app.go_history()
+
+                MDIconButton:
+                    icon: "bug"
+                    theme_text_color: "Custom"
+                    text_color: 1, 1, 1, 1
+                    pos_hint: {"right": 0.86, "center_y": 0.5}
+                    on_release: app.open_debug_panel()
+
+                MDIconButton:
+                    icon: "autorenew"
+                    theme_text_color: "Custom"
+                    text_color: 1, 1, 1, 1
+                    pos_hint: {"right": 0.93, "center_y": 0.5}
+                    on_release: app.recover_app_state()
+
+                MDIconButton:
+                    icon: "refresh"
+                    theme_text_color: "Custom"
+                    text_color: 1, 1, 1, 1
+                    pos_hint: {"right": 0.99, "center_y": 0.5}
+                    on_release: app.refresh_issues()
 
             MDLabel:
                 text: "이번주 주요 쟁점 사항"
@@ -144,21 +160,11 @@ ScreenManager:
             spacing: dp(12)
             md_bg_color: 1, 1, 1, 1
 
-            MDIconButton:
-                icon: "history"
-                theme_text_color: "Custom"
-                text_color: 0.13, 0.58, 0.92, 1
-                on_release: app.go_history()
-
             MDLabel:
-                text: ""
-                size_hint_x: 1
-
-            MDIconButton:
-                icon: "refresh"
-                theme_text_color: "Custom"
-                text_color: 0.13, 0.58, 0.92, 1
-                on_release: app.refresh_issues()
+                text: "조합원용 모바일 앱"
+                font_name: "Nanum"
+                halign: "center"
+                theme_text_color: "Secondary"
 
 
 <UpdateHistoryScreen>:

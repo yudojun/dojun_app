@@ -24,6 +24,7 @@ from kivymd.uix.menu import MDDropdownMenu
 from kivymd.toast import toast
 from kivymd.uix.snackbar import MDSnackbar
 from kivymd.uix.progressbar import MDProgressBar
+from kivymd.uix.dialog import MDDialog
 from kivy.uix.image import AsyncImage
 from kivy.clock import Clock
 
@@ -927,6 +928,7 @@ class MainScreen(MDScreen):
             self.card_map[issue_id] = card
 
         self._last_loaded_tab = self.current_tab
+
     def _add_empty_state(self):
         issue_list = self.ids.get("issue_list")
         if not issue_list:
@@ -934,26 +936,105 @@ class MainScreen(MDScreen):
 
         issue_list.clear_widgets()
 
+        tab_name = getattr(self, "current_tab", "전체")
+
+        if tab_name == "공지":
+            title_text = "📭 표시할 공지가 없습니다"
+            guide_text = "공개 상태(open/closed)의 공지만 표시됩니다."
+        elif tab_name == "투표":
+            title_text = "🗳 표시할 투표가 없습니다"
+            guide_text = "진행중(open) 상태의 투표만 표시됩니다."
+        elif tab_name == "설문":
+            title_text = "📝 표시할 설문이 없습니다"
+            guide_text = "진행중(open) 상태의 설문만 표시됩니다."
+        else:
+            title_text = "📭 현재 표시할 안건이 없습니다"
+            guide_text = "active=true 이고 표시 조건을 만족하는 문서만 보입니다."
+
         card = MDCard(
             orientation="vertical",
             padding=(dp(20), dp(20)),
-            radius=[14],
-            elevation=0,
-            md_bg_color=(0.96, 0.96, 0.96, 1),
+            spacing=dp(12),
+            radius=[16],
+            elevation=1,
+            md_bg_color=(1, 1, 1, 1),
             size_hint_y=None,
         )
         card.bind(minimum_height=card.setter("height"))
 
-        card.add_widget(
-            MDLabel(
-                text="📭 현재 등록된 쟁점이 없습니다",
-                font_name="Nanum",
-                halign="center",
-                theme_text_color="Secondary",
-                size_hint_y=None,
-                height=dp(32),
-            )
+        title_label = MDLabel(
+            text=title_text,
+            font_name="Nanum",
+            font_size="16sp",
+            bold=True,
+            halign="center",
+            theme_text_color="Custom",
+            text_color=(0.20, 0.20, 0.20, 1),
+            size_hint_y=None,
+            height=dp(30),
         )
+
+        guide_label = MDLabel(
+            text=guide_text,
+            font_name="Nanum",
+            halign="center",
+            theme_text_color="Secondary",
+            size_hint_y=None,
+        )
+
+        hint_label = MDLabel(
+            text="필요하면 상단 복구 버튼이나 새로고침 버튼을 눌러 다시 확인해 보세요.",
+            font_name="Nanum",
+            halign="center",
+            theme_text_color="Secondary",
+            size_hint_y=None,
+        )
+
+        def _update_label_height(label, width_value):
+            label.text_size = (width_value, None)
+            label.texture_update()
+            label.height = label.texture_size[1]
+
+        def _update_heights(*args):
+            width_value = card.width - dp(40)
+            _update_label_height(guide_label, width_value)
+            _update_label_height(hint_label, width_value)
+
+        card.bind(width=lambda *args: _update_heights())
+        Clock.schedule_once(lambda dt: _update_heights(), 0)
+
+        btn_row = MDBoxLayout(
+            orientation="horizontal",
+            spacing=dp(10),
+            size_hint_y=None,
+            height=dp(42),
+        )
+
+        recover_btn = MDRaisedButton(
+            text="복구",
+            font_name="Nanum",
+            md_bg_color=(0.13, 0.58, 0.92, 1),
+            text_color=(1, 1, 1, 1),
+            on_release=lambda x: MDApp.get_running_app().recover_app_state(),
+        )
+
+        refresh_btn = MDFlatButton(
+            text="새로고침",
+            font_name="Nanum",
+            theme_text_color="Custom",
+            text_color=(0.13, 0.58, 0.92, 1),
+            on_release=lambda x: MDApp.get_running_app().refresh_issues(),
+        )
+
+        btn_row.add_widget(MDLabel(text=""))
+        btn_row.add_widget(recover_btn)
+        btn_row.add_widget(refresh_btn)
+        btn_row.add_widget(MDLabel(text=""))
+
+        card.add_widget(title_label)
+        card.add_widget(guide_label)
+        card.add_widget(hint_label)
+        card.add_widget(btn_row)
 
         issue_list.add_widget(card)
         self._last_loaded_tab = self.current_tab
@@ -1869,6 +1950,9 @@ class UpdateRequiredScreen(MDScreen):
 class MainApp(MDApp):
     sort_mode = "최신순"  # 기본값: 최신순
     sort_menu = None
+    _refreshing = False
+    _last_issue_signature = None
+    _auto_refresh_event = None
 
     def open_sort_menu(self, caller):
         items = [
@@ -1900,6 +1984,10 @@ class MainApp(MDApp):
         return Builder.load_file(kv_path)
 
     def on_start(self):
+        self._refreshing = False
+        self._last_issue_signature = None
+        self._auto_refresh_event = None
+
         try:
             id_token, uid = firebase_anonymous_login()
             self.user_id_token = id_token
@@ -1935,13 +2023,20 @@ class MainApp(MDApp):
             print("UPDATE STATE ERROR:", e)
 
     def stop_update_dot_animation(self):
-        main = self.root.get_screen("main")
-        dot = main.ids.update_dot
-        Animation.cancel_all(dot)
-        dot.opacity = 0
+        try:
+            main = self.root.get_screen("main")
+            dot = main.ids.get("update_dot")
+            if not dot:
+                return
+
+            Animation.cancel_all(dot)
+            dot.opacity = 0
+
+        except Exception as e:
+            print("STOP UPDATE DOT ERROR:", e)
+
 
     def update_dot_state(self):
-        # remote_version은 이미 fetch_remote_version()으로 가져오고 있지?
         try:
             remote_v = fetch_remote_version()
         except Exception:
@@ -1949,18 +2044,27 @@ class MainApp(MDApp):
 
         local_v = get_local_version()
 
+        try:
+            main = self.root.get_screen("main")
+            dot = main.ids.get("update_dot")
+            if not dot:
+                return
+        except Exception as e:
+            print("UPDATE DOT STATE ERROR:", e)
+            return
+
         if remote_v > local_v:
             self.start_update_dot_animation()
         else:
             self.stop_update_dot_animation()
 
-    _refreshing = False
-    _last_issue_signature = None
-
     def refresh_issues(self, *args, silent=False):
+        global LOCAL_ISSUES
+
         if self._refreshing:
             print("INFO: refresh ignored (already refreshing)")
             return
+
         self._refreshing = True
 
         def _do_refresh(dt):
@@ -1981,7 +2085,6 @@ class MainApp(MDApp):
                     new_sig = self.build_issue_signature(fetched)
 
                     changed = old_sig != new_sig
-
                     print("DEBUG changed:", changed)
 
                     if changed:
@@ -2001,6 +2104,15 @@ class MainApp(MDApp):
 
                 else:
                     print("WARN: fetched empty -> keep LOCAL_ISSUES")
+
+                    try:
+                        if self.root.current == "main":
+                            main = self.root.get_screen("main")
+                            if not LOCAL_ISSUES:
+                                main._last_loaded_tab = None
+                                main.populate_main_list()
+                    except Exception as e:
+                        print("ERROR EMPTY FETCH UI UPDATE:", e)
 
             except Exception as e:
                 print("ERROR refresh_issues:", e)
@@ -2974,5 +3086,222 @@ class MainApp(MDApp):
             )
         return result
     
+    def get_debug_info(self):
+        global LOCAL_ISSUES
+
+        issues = LOCAL_ISSUES or []
+        total = len(issues)
+
+        status_counts = {
+            "open": 0,
+            "draft": 0,
+            "review": 0,
+            "closed": 0,
+            "archived": 0,
+            "unknown": 0,
+        }
+
+        type_counts = {
+            "notice": 0,
+            "vote": 0,
+            "survey": 0,
+            "unknown": 0,
+        }
+
+        pinned_count = 0
+        active_true_count = 0
+        active_false_count = 0
+
+        for item in issues:
+            status = str(item.get("status", "") or "").strip().lower()
+            issue_type = str(item.get("type", "") or "").strip().lower()
+            active = item.get("active", True)
+            is_pinned = bool(item.get("isPinned", False))
+
+            if status in status_counts:
+                status_counts[status] += 1
+            else:
+                status_counts["unknown"] += 1
+
+            if issue_type in type_counts:
+                type_counts[issue_type] += 1
+            else:
+                type_counts["unknown"] += 1
+
+            if active:
+                active_true_count += 1
+            else:
+                active_false_count += 1
+
+            if is_pinned:
+                pinned_count += 1
+
+        try:
+            main = self.root.get_screen("main")
+            current_tab = getattr(main, "current_tab", "unknown")
+            visible = len(get_filtered_issues(current_tab))
+        except Exception:
+            current_tab = "unknown"
+            visible = 0
+
+        def sort_debug_key(item):
+            is_pinned = 1 if item.get("isPinned") else 0
+            order_val = item.get("order", 999999)
+            created_at = (
+                item.get("createdAt")
+                or item.get("updatedAt")
+                or item.get("created_at")
+                or item.get("updated_at")
+                or ""
+            )
+            return (-is_pinned, order_val, created_at)
+
+        try:
+            sorted_issues = sorted(issues, key=sort_debug_key)
+        except Exception:
+            sorted_issues = issues
+
+        recent_titles = []
+        for item in sorted_issues[:3]:
+            title = str(item.get("title", "") or "").strip()
+            if title:
+                recent_titles.append(title)
+
+        return {
+            "app_version": APP_VERSION,
+            "project_id": PROJECT_ID,
+            "total_issues": total,
+            "visible_issues": visible,
+            "current_tab": current_tab,
+            "user_uid": getattr(self, "user_uid", "")[:8],
+            "status_counts": status_counts,
+            "type_counts": type_counts,
+            "pinned_count": pinned_count,
+            "active_true_count": active_true_count,
+            "active_false_count": active_false_count,
+            "recent_titles": recent_titles,
+        }
+
+    def open_debug_panel(self):
+        info = self.get_debug_info()
+
+        status_counts = info["status_counts"]
+        type_counts = info["type_counts"]
+        recent_titles = info.get("recent_titles", [])
+
+        if recent_titles:
+            recent_text = "\n".join([f"- {title}" for title in recent_titles])
+        else:
+            recent_text = "- 없음"
+
+        text = (
+            f"앱 버전: {info['app_version']}\n"
+            f"프로젝트: {info['project_id']}\n"
+            f"UID: {info['user_uid']}\n\n"
+            f"현재 탭: {info['current_tab']}\n"
+            f"전체 문서: {info['total_issues']}\n"
+            f"표시 문서: {info['visible_issues']}\n"
+            f"고정 문서: {info['pinned_count']}\n"
+            f"active=true: {info['active_true_count']}\n"
+            f"active=false: {info['active_false_count']}\n\n"
+            f"[상태별]\n"
+            f"open: {status_counts['open']}\n"
+            f"draft: {status_counts['draft']}\n"
+            f"review: {status_counts['review']}\n"
+            f"closed: {status_counts['closed']}\n"
+            f"archived: {status_counts['archived']}\n"
+            f"unknown: {status_counts['unknown']}\n\n"
+            f"[유형별]\n"
+            f"notice: {type_counts['notice']}\n"
+            f"vote: {type_counts['vote']}\n"
+            f"survey: {type_counts['survey']}\n"
+            f"unknown: {type_counts['unknown']}\n\n"
+            f"[최근 문서 3개]\n"
+            f"{recent_text}"
+        )
+
+        if hasattr(self, "_debug_dialog") and self._debug_dialog:
+            try:
+                self._debug_dialog.dismiss()
+            except Exception:
+                pass
+
+        self._debug_dialog = MDDialog(
+            title="디버그 정보",
+            text=text,
+            size_hint=(0.88, None),
+            height="560dp",
+        )
+        self._debug_dialog.open()
+
+    def reset_runtime_state(self):
+        global LOCAL_ISSUES
+
+        self._refreshing = False
+        self._last_issue_signature = None
+        LOCAL_ISSUES = []
+
+        try:
+            main = self.root.get_screen("main")
+            main._last_loaded_tab = None
+            main.opened_card = None
+            main.card_map = {}
+        except Exception as e:
+            print("RESET MAIN STATE ERROR:", e)
+
+        try:
+            self.stop_update_dot_animation()
+        except Exception as e:
+            print("RESET DOT ERROR:", e)
+
+
+    def reset_local_version_state(self):
+        try:
+            save_local_version(0)
+        except Exception as e:
+            print("RESET LOCAL VERSION ERROR:", e)
+
+
+    def recover_app_state(self):
+        try:
+            self.reset_runtime_state()
+            self.reset_local_version_state()
+
+            try:
+                main = self.root.get_screen("main")
+                issue_list = main.ids.get("issue_list")
+                if issue_list:
+                    issue_list.clear_widgets()
+            except Exception as e:
+                print("CLEAR ISSUE LIST ERROR:", e)
+
+            self.refresh_issues(silent=False)
+
+            MDSnackbar(
+                MDLabel(
+                    text="앱 상태를 초기화하고 다시 불러오는 중입니다",
+                    font_name="Nanum",
+                    max_lines=1,
+                ),
+                y="10dp",
+                pos_hint={"center_x": 0.5},
+                size_hint_x=0.90,
+                duration=1.2,
+            ).open()
+
+        except Exception as e:
+            print("RECOVER APP STATE ERROR:", e)
+            MDSnackbar(
+                MDLabel(
+                    text="앱 초기화 중 오류가 발생했습니다",
+                    font_name="Nanum",
+                    max_lines=1,
+                ),
+                y="10dp",
+                pos_hint={"center_x": 0.5},
+                size_hint_x=0.85,
+                duration=1.2,
+            ).open()
+
 if __name__ == "__main__":
     MainApp().run()
