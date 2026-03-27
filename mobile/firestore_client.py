@@ -100,7 +100,13 @@ else:
         doc = db.collection("meta").document("version").get()
 
         if not doc.exists:
-            return _default_version_meta()
+            return {
+                "latestVersion": "0.0.0",
+                "minimumVersion": "0.0.0",
+                "updateRequired": False,
+                "message": "",
+                "downloadUrl": "",
+            }
 
         data = doc.to_dict() or {}
 

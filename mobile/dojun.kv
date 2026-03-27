@@ -35,32 +35,33 @@ ScreenManager:
                     md_bg_color: 0.13, 0.58, 0.92, 1
 
                 MDIconButton:
-                    icon: "history"
+                    icon: "information-outline"
                     theme_text_color: "Custom"
                     text_color: 1, 1, 1, 1
                     pos_hint: {"x": 0.01, "center_y": 0.5}
                     on_release: app.go_history()
 
-                MDIconButton:
-                    icon: "bug"
-                    theme_text_color: "Custom"
-                    text_color: 1, 1, 1, 1
-                    pos_hint: {"right": 0.86, "center_y": 0.5}
-                    on_release: app.open_debug_panel()
-
-                MDIconButton:
-                    icon: "autorenew"
-                    theme_text_color: "Custom"
-                    text_color: 1, 1, 1, 1
-                    pos_hint: {"right": 0.93, "center_y": 0.5}
-                    on_release: app.recover_app_state()
-
-                MDIconButton:
-                    icon: "refresh"
-                    theme_text_color: "Custom"
-                    text_color: 1, 1, 1, 1
+                MDBoxLayout:
+                    orientation: "horizontal"
+                    size_hint: None, None
+                    width: dp(108)
+                    height: dp(48)
+                    spacing: dp(6)
                     pos_hint: {"right": 0.99, "center_y": 0.5}
-                    on_release: app.refresh_issues()
+
+                    MDIconButton:
+                        icon: "bug"
+                        theme_text_color: "Custom"
+                        text_color: 1, 1, 1, 1
+                        icon_size: "24sp"
+                        on_release: app.open_debug_panel()
+
+                    MDIconButton:
+                        icon: "refresh"
+                        theme_text_color: "Custom"
+                        text_color: 1, 1, 1, 1
+                        icon_size: "24sp"
+                        on_release: app.refresh_issues()
 
             MDLabel:
                 text: "이번주 주요 쟁점 사항"
@@ -161,7 +162,7 @@ ScreenManager:
             md_bg_color: 1, 1, 1, 1
 
             MDLabel:
-                text: "조합원용 모바일 앱"
+                text: "VOLVO UNION APP"
                 font_name: "Nanum"
                 halign: "center"
                 theme_text_color: "Secondary"
@@ -179,7 +180,7 @@ ScreenManager:
             left_action_items: [["arrow-left", lambda x: app.go_main()]]
 
         MDLabel:
-            text: "업데이트 내역"
+            text: "앱 정보"
             font_name: "Nanum"
             font_size: "20sp"
             bold: True

@@ -89,12 +89,13 @@ const DEFAULT_FORM = {
   reviewComment: "",
 };
 
- 
 function getAutoScope(tab) {
   return tab === "private" ? "비공개" : "전체";
 }
 
 function inferTabFromIssue(issue) {
+  if (issue?.sourceTab === "private") return "private";
+  if (issue?.sourceTab === "public") return "public";
   if (issue?.scope === "비공개") return "private";
   return "public";
 }
@@ -188,6 +189,7 @@ export default function useIssues({
   });
 
   const [editingId, setEditingId] = useState(null);
+  const [editingSourceTab, setEditingSourceTab] = useState("public");
   const [isCreating, setIsCreating] = useState(false);
   const [savingIssue, setSavingIssue] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState(null);
@@ -209,7 +211,9 @@ export default function useIssues({
   const visibleIssues = useMemo(() => {
     let list = Array.isArray(issues) ? [...issues] : [];
 
-    list = list.filter((issue) => inferTabFromIssue(issue) === tab);
+    list = list.filter(
+      (issue) => (issue.sourceTab || inferTabFromIssue(issue)) === tab
+    );
 
     list = list.filter((issue) => {
       const archived = issue.status === "archived";
@@ -247,10 +251,21 @@ export default function useIssues({
   }, [issues, tab, showTrash, statusFilter, searchText]);
 
   const selectedIssue = useMemo(() => {
-    return visibleIssues.find((issue) => issue.id === selectedIssueId) || null;
+    return (
+      visibleIssues.find(
+        (issue) => (issue.docId || issue.id) === selectedIssueId
+      ) || null
+    );
   }, [visibleIssues, selectedIssueId]);
 
   const createTargetTab = tab;
+
+  const getIssueSourceTab = (issueId) => {
+    const target = issues.find(
+      (issue) => (issue.docId || issue.id) === issueId
+    );
+    return target?.sourceTab || inferTabFromIssue(target) || tab;
+  };
 
   const resetForm = () => {
     setForm({
@@ -258,6 +273,7 @@ export default function useIssues({
       scope: getAutoScope(tab),
     });
     setEditingId(null);
+    setEditingSourceTab(tab);
     setIsCreating(false);
   };
 
@@ -277,51 +293,46 @@ export default function useIssues({
       order: nextOrder,
     });
     setEditingId(null);
+    setEditingSourceTab(tab);
     setIsCreating(true);
   };
 
   const startEdit = (issue) => {
-    if (!issue) return;
+    if (!enabled || !issue) return;
+
+    const safeId = issue.docId || issue.id;
 
     setIsCreating(false);
-    setEditingId(issue.id);
+    setEditingId(safeId);
+    setEditingSourceTab(issue.sourceTab || inferTabFromIssue(issue) || tab);
+    setSelectedIssueId(safeId);
 
     setForm({
       type: issue.type || "notice",
       title: issue.title || "",
       summary: issue.summary || "",
       content: issue.content || "",
-      category: issue.category || "",
+      category: issue.category || "general",
+      scope: issue.scope || getAutoScope(tab),
       status: issue.status || "draft",
-
-      // v3 정책:
-      // 수정 화면에서도 기존 scope 유지보다
-      // 현재 탭 기준 정규화를 우선한다.
-      scope: getAutoScope(tab),
-
-      isPinned: !!issue.isPinned,
+      startAt: issue.startAt || null,
+      endAt: issue.endAt || null,
       resultVisibility: issue.resultVisibility || "after_close",
+      isPinned: Boolean(issue.isPinned),
       imageUrl: issue.imageUrl || "",
       company: issue.company || "",
       union: issue.union || "",
-      question: issue.question || "",
-      options: Array.isArray(issue.options)
-        ? issue.options.join("\n")
-        : issue.options || "",
-      startAt: issue.startAt || "",
-      endAt: issue.endAt || "",
-      multiple: !!issue.multiple,
-      anonymous: issue.anonymous ?? true,
-      allowEdit: !!issue.allowEdit,
-      maxSelections: issue.maxSelections ?? "",
-      order: issue.order ?? "",
-      internalMemo: issue.internalMemo || "",
-      reviewComment: issue.reviewComment || "",
+      options: Array.isArray(issue.options) ? issue.options : [],
+      multiple: Boolean(issue.multiple),
+      maxSelections: Number(issue.maxSelections || 1),
+      active: Boolean(issue.active ?? true),
+      order: Number(issue.order || 1),
     });
   };
 
   const saveNewIssue = async () => {
     if (!enabled) throw new Error("현재 저장할 수 없는 상태입니다.");
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
 
     setSavingIssue(true);
     try {
@@ -339,17 +350,26 @@ export default function useIssues({
   const saveEdit = async () => {
     if (!enabled) throw new Error("현재 저장할 수 없는 상태입니다.");
     if (!editingId) return;
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
 
     setSavingIssue(true);
     try {
       const currentOrder =
         Number(form.order) ||
         Number(
-          visibleIssues.find((issue) => issue.id === editingId)?.order || 1
+          visibleIssues.find(
+            (issue) => (issue.docId || issue.id) === editingId
+          )?.order || 1
         );
 
-      const payload = buildIssuePayload(form, tab, uid, currentOrder);
-      await updateIssue(tab, editingId, payload, uid);
+      const payload = buildIssuePayload(
+        form,
+        editingSourceTab,
+        uid,
+        currentOrder
+      );
+
+      await updateIssue(editingSourceTab, editingId, payload, uid);
       resetForm();
     } catch (error) {
       console.error("안건 수정 실패:", error);
@@ -361,46 +381,70 @@ export default function useIssues({
 
   const archiveIssue = async (issueId) => {
     if (!enabled) throw new Error("현재 보관할 수 없는 상태입니다.");
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
+
+    setSavingIssue(true);
     try {
-      await archiveIssueService(tab, issueId, uid);
+      const targetTab = getIssueSourceTab(issueId);
+      await archiveIssueService(targetTab, issueId, uid);
     } catch (error) {
       console.error("안건 보관 실패:", error);
       throw error;
+    } finally {
+      setSavingIssue(false);
     }
   };
 
   const restoreIssue = async (issueId) => {
     if (!enabled) throw new Error("현재 복구할 수 없는 상태입니다.");
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
+
+    setSavingIssue(true);
     try {
-      await restoreIssueService(tab, issueId, uid);
+      const targetTab = getIssueSourceTab(issueId);
+      await restoreIssueService(targetTab, issueId, uid);
     } catch (error) {
       console.error("안건 복구 실패:", error);
       throw error;
+    } finally {
+      setSavingIssue(false);
     }
   };
 
   const hardDeleteIssue = async (issueId) => {
     if (!enabled) throw new Error("현재 삭제할 수 없는 상태입니다.");
+
+    setSavingIssue(true);
     try {
-      await hardDeleteIssueService(tab, issueId);
+      const targetTab = getIssueSourceTab(issueId);
+      await hardDeleteIssueService(targetTab, issueId);
     } catch (error) {
       console.error("안건 영구 삭제 실패:", error);
       throw error;
+    } finally {
+      setSavingIssue(false);
     }
   };
 
   const handleChangeIssueStatus = async (issueId, nextStatus) => {
     if (!enabled) throw new Error("현재 상태를 변경할 수 없는 상태입니다.");
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
+
+    setSavingIssue(true);
     try {
-      await changeIssueStatusService(tab, issueId, nextStatus, uid);
+      const targetTab = getIssueSourceTab(issueId);
+      await changeIssueStatusService(targetTab, issueId, nextStatus, uid);
     } catch (error) {
       console.error("안건 상태 변경 실패:", error);
       throw error;
+    } finally {
+      setSavingIssue(false);
     }
   };
 
   const normalizeIssueOrders = async () => {
     if (!enabled) throw new Error("현재 순서를 정리할 수 없는 상태입니다.");
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
 
     setReordering(true);
     try {
@@ -409,22 +453,6 @@ export default function useIssues({
         order: index + 1,
       }));
 
-      console.log(
-      "normalizeIssueOrders normalized full:",
-      JSON.stringify(
-        normalized.map((it, index) => ({
-          index,
-          id: it.id,
-          docId: it.docId,
-          displayId: it.displayId,
-          title: it.title,
-          status: it.status,
-          order: it.order,
-        })),
-        null,
-        2
-      )
-    );
       await reorderIssues(tab, normalized, uid);
     } catch (error) {
       console.error("안건 순서 재정렬 실패:", error);

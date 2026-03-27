@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { ui } from "../styles/ui";
+import { uploadIssueImage } from "../services/storageService";
 
 const TYPE_OPTIONS = [
   { value: "notice", label: "공지" },
@@ -216,6 +217,26 @@ const local = {
     fontWeight: 700,
     cursor: "pointer",
   },
+  uploadButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "10px 14px",
+    borderRadius: 10,
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  dangerButton: {
+    padding: "10px 14px",
+    borderRadius: 10,
+    border: "1px solid #fecaca",
+    background: "#fff1f2",
+    color: "#b91c1c",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
 };
 
 export default function IssueForm({
@@ -229,10 +250,14 @@ export default function IssueForm({
   savingIssue = false,
   canCreateOrEdit = true,
 }) {
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
   const autoScope = getAutoScope(tab);
   const visibilityGuide = getVisibilityGuide(tab, form.type, form.status);
   const errors = useMemo(() => validateForm({ tab, form }), [tab, form]);
-  const canSubmit = canCreateOrEdit && !savingIssue && errors.length === 0;
+  const canSubmit =
+    canCreateOrEdit && !savingIssue && !uploadingImage && errors.length === 0;
 
   const updateField = (key, value) => {
     setForm((prev) => ({
@@ -251,6 +276,30 @@ export default function IssueForm({
     }
 
     await onSaveNewIssue();
+  };
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadError("");
+    setUploadingImage(true);
+
+    try {
+      const actorUid = "admin";
+      const result = await uploadIssueImage(file, tab, actorUid);
+
+      setForm((prev) => ({
+        ...prev,
+        imageUrl: result.url,
+      }));
+    } catch (error) {
+      console.error("이미지 업로드 실패:", error);
+      setUploadError(error?.message || "이미지 업로드에 실패했습니다.");
+    } finally {
+      setUploadingImage(false);
+      event.target.value = "";
+    }
   };
 
   const badgeStyle = {
@@ -291,6 +340,13 @@ export default function IssueForm({
               <li key={idx}>{msg}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {uploadError && (
+        <div style={local.errorBox}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>이미지 업로드 오류</div>
+          <div>{uploadError}</div>
         </div>
       )}
 
@@ -387,14 +443,70 @@ export default function IssueForm({
 
       <div style={{ ...local.grid2, marginTop: 12 }}>
         <div>
-          <label style={local.label}>이미지 URL</label>
+          <label style={local.label}>이미지</label>
           <input
             type="text"
             value={form.imageUrl || ""}
             onChange={(e) => updateField("imageUrl", e.target.value)}
             style={local.input}
-            placeholder="선택 사항"
+            placeholder="직접 URL 입력 또는 아래 파일 업로드"
           />
+
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
+              marginTop: 8,
+            }}
+          >
+            <label
+              style={{
+                ...local.uploadButton,
+                cursor: uploadingImage ? "not-allowed" : "pointer",
+                opacity: uploadingImage ? 0.7 : 1,
+              }}
+            >
+              {uploadingImage ? "업로드 중..." : "파일 선택"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={handleImageUpload}
+                disabled={uploadingImage}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            {form.imageUrl ? (
+              <button
+                type="button"
+                onClick={() => updateField("imageUrl", "")}
+                style={local.dangerButton}
+              >
+                이미지 제거
+              </button>
+            ) : null}
+          </div>
+
+          {form.imageUrl ? (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 6 }}>
+                미리보기
+              </div>
+              <img
+                src={form.imageUrl}
+                alt="업로드 미리보기"
+                style={{
+                  width: "100%",
+                  maxHeight: 220,
+                  objectFit: "cover",
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                }}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div>
@@ -526,7 +638,13 @@ export default function IssueForm({
             cursor: canSubmit ? "pointer" : "not-allowed",
           }}
         >
-          {savingIssue ? "저장 중..." : editingId ? "수정 저장" : "안건 생성"}
+          {savingIssue || uploadingImage
+            ? uploadingImage
+              ? "업로드 중..."
+              : "저장 중..."
+            : editingId
+            ? "수정 저장"
+            : "안건 생성"}
         </button>
 
         <button

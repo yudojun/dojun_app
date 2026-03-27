@@ -12,6 +12,7 @@ import {
   updateDoc,
   writeBatch,
   setDoc,
+  where,
 } from "firebase/firestore";
 import { db } from "../firebase";
 
@@ -25,6 +26,49 @@ export function getIssueCollection(tab) {
 
 function getIssueRef(tab, issueId) {
   return doc(db, getIssueCollection(tab), issueId);
+}
+
+async function resolveExistingIssueRef(tab, issueId) {
+  const col = getIssueCollection(tab);
+
+  const directRef = doc(db, col, issueId);
+  const directSnap = await getDoc(directRef);
+
+  if (directSnap.exists()) {
+    return {
+      ref: directRef,
+      snap: directSnap,
+      resolvedId: directRef.id,
+    };
+  }
+
+  const fallbackSnap = await getDocs(
+    query(collection(db, col), where("id", "==", issueId))
+  );
+
+  if (!fallbackSnap.empty) {
+    const foundDoc = fallbackSnap.docs[0];
+    return {
+      ref: foundDoc.ref,
+      snap: foundDoc,
+      resolvedId: foundDoc.id,
+    };
+  }
+
+  const otherCol = col === "issues_public" ? "issues_private" : "issues_public";
+  const otherDirectRef = doc(db, otherCol, issueId);
+  const otherDirectSnap = await getDoc(otherDirectRef);
+
+  if (otherDirectSnap.exists()) {
+    return {
+      ref: otherDirectRef,
+      snap: otherDirectSnap,
+      resolvedId: otherDirectRef.id,
+      resolvedTab: otherCol === "issues_public" ? "public" : "private",
+    };
+  }
+
+  throw new Error(`안건 문서를 찾을 수 없어: ${issueId}`);
 }
 
 function getVoteRef(issueId) {
@@ -49,23 +93,10 @@ export function subscribeIssues(tab, onData, onError) {
           id: d.id,                     // ✅ 로직용: 항상 Firestore 문서 ID
           docId: d.id,                  // ✅ 필요하면 계속 사용
           displayId: data.id || d.id,   // ✅ 화면 표시용
+          sourceTab: tab,
         };
       });
-
-      console.log(
-        "subscribeIssues rows:",
-        JSON.stringify(
-          rows.map((it) => ({
-            id: it.id,
-            docId: it.docId,
-            displayId: it.displayId,
-            title: it.title,
-          })),
-          null,
-          2
-        )
-      );
-
+      
       onData(rows);
     },
     onError
@@ -230,39 +261,30 @@ export async function createIssue(tab, payload, actorUid) {
 }
 
 export async function updateIssue(tab, issueId, payload, actorUid) {
-  const issueRef = getIssueRef(tab, issueId);
+  const resolved = await resolveExistingIssueRef(tab, issueId);
+  const issueRef = resolved.ref;
+  const resolvedId = resolved.resolvedId;
+  const resolvedTab = resolved.resolvedTab || tab;
+
   const issuePatch = buildIssuePatch(payload, actorUid);
 
-  console.log("UPDATE ISSUE FINAL PATCH:", issuePatch);
-  Object.entries(issuePatch).forEach(([key, value]) => {
-    console.log(
-      "UPDATE ISSUE FIELD:",
-      key,
-      value,
-      value === null ? "null" : Array.isArray(value) ? "array" : typeof value
-    );
-  });
-
-  console.log("STEP 1: issues_public update 시작");
   await updateDoc(issueRef, issuePatch);
-  console.log("STEP 1: issues_public update 성공");
-
-  console.log("STEP 2: syncVoteDocForPublicIssue 시작");
-  await syncVoteDocForPublicIssue(tab, issueId, payload, actorUid);
-  console.log("STEP 2: syncVoteDocForPublicIssue 성공");
+  await syncVoteDocForPublicIssue(resolvedTab, resolvedId, payload, actorUid);
 }
-export async function archiveIssue(tab, issueId, actorUid) {
-  const issueRef = getIssueRef(tab, issueId);
-  const snap = await getDoc(issueRef);
 
-  if (!snap.exists()) {
-    throw new Error("안건을 찾을 수 없어");
-  }
+export async function archiveIssue(tab, issueId, actorUid) {
+  const resolved = await resolveExistingIssueRef(tab, issueId);
+  const issueRef = resolved.ref;
+  const snap = resolved.snap;
+  const resolvedId = resolved.resolvedId;
+  const resolvedTab = resolved.resolvedTab || tab;
 
   const issue = snap.data();
   const currentStatus = issue.status || "draft";
   const previousStatus =
-    currentStatus === "archived" ? issue.previousStatusBeforeArchive || "draft" : currentStatus;
+    currentStatus === "archived"
+      ? issue.previousStatusBeforeArchive || "draft"
+      : currentStatus;
 
   await updateDoc(issueRef, {
     active: false,
@@ -273,8 +295,8 @@ export async function archiveIssue(tab, issueId, actorUid) {
     updatedAt: serverTimestamp(),
   });
 
-  if (tab === "public" && isVoteLikeType(issue.type)) {
-    await updateDoc(getVoteRef(issueId), {
+  if (resolvedTab === "public" && isVoteLikeType(issue.type)) {
+    await updateDoc(getVoteRef(resolvedId), {
       status: "archived",
       updatedBy: actorUid,
       updatedAt: serverTimestamp(),
@@ -283,12 +305,11 @@ export async function archiveIssue(tab, issueId, actorUid) {
 }
 
 export async function restoreIssue(tab, issueId, actorUid) {
-  const issueRef = getIssueRef(tab, issueId);
-  const snap = await getDoc(issueRef);
-
-  if (!snap.exists()) {
-    throw new Error("안건을 찾을 수 없어");
-  }
+  const resolved = await resolveExistingIssueRef(tab, issueId);
+  const issueRef = resolved.ref;
+  const snap = resolved.snap;
+  const resolvedId = resolved.resolvedId;
+  const resolvedTab = resolved.resolvedTab || tab;
 
   const issue = snap.data();
   const restoredStatus = issue.previousStatusBeforeArchive || "draft";
@@ -308,26 +329,32 @@ export async function restoreIssue(tab, issueId, actorUid) {
     updatedAt: serverTimestamp(),
   });
 
-  await syncVoteDocForPublicIssue(tab, issueId, restoredPayload, actorUid);
+  await syncVoteDocForPublicIssue(resolvedTab, resolvedId, restoredPayload, actorUid);
 }
 
 export async function hardDeleteIssue(tab, issueId) {
-  const issueRef = getIssueRef(tab, issueId);
+  const resolved = await resolveExistingIssueRef(tab, issueId);
+  const issueRef = resolved.ref;
+  const resolvedId = resolved.resolvedId;
+  const resolvedTab = resolved.resolvedTab || tab;
 
-  if (tab === "public") {
-    await deleteDoc(getVoteRef(issueId));
+  if (resolvedTab === "public") {
+    const voteRef = getVoteRef(resolvedId);
+    const voteSnap = await getDoc(voteRef);
+    if (voteSnap.exists()) {
+      await deleteDoc(voteRef);
+    }
   }
 
   return deleteDoc(issueRef);
 }
 
 export async function changeIssueStatus(tab, issueId, nextStatus, actorUid) {
-  const issueRef = getIssueRef(tab, issueId);
-  const snap = await getDoc(issueRef);
-
-  if (!snap.exists()) {
-    throw new Error("안건을 찾을 수 없어");
-  }
+  const resolved = await resolveExistingIssueRef(tab, issueId);
+  const issueRef = resolved.ref;
+  const snap = resolved.snap;
+  const resolvedId = resolved.resolvedId;
+  const resolvedTab = resolved.resolvedTab || tab;
 
   const issue = snap.data();
   const currentStatus = issue.status || "draft";
@@ -366,7 +393,7 @@ export async function changeIssueStatus(tab, issueId, nextStatus, actorUid) {
     endAt: issue.endAt ?? null,
   };
 
-  await syncVoteDocForPublicIssue(tab, issueId, nextIssuePayload, actorUid);
+  await syncVoteDocForPublicIssue(resolvedTab, resolvedId, nextIssuePayload, actorUid);
 }
 
 export async function reorderIssues(tab, issues, actorUid) {

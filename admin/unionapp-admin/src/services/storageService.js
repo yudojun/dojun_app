@@ -1,37 +1,50 @@
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../firebase";
 
-function isFirebaseStorageUrl(url) {
-  return (
-    typeof url === "string" &&
-    (url.includes("firebasestorage.googleapis.com") || url.startsWith("gs://"))
-  );
+const MAX_IMAGE_SIZE_MB = 5;
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
+
+function sanitizeFileName(name) {
+  return String(name || "image")
+    .replace(/\s+/g, "_")
+    .replace(/[^\w.\-]/g, "");
 }
 
-export async function uploadIssueImage(file, issueId = "temp") {
-  if (!file) return null;
-
-  const ext = file.name.split(".").pop();
-  const fileName = `${Date.now()}.${ext}`;
-
-  const storageRef = ref(storage, `issues/${issueId}/${fileName}`);
-
-  await uploadBytes(storageRef, file);
-
-  const url = await getDownloadURL(storageRef);
-
-  return url;
-}
-
-export async function deleteIssueImageByUrl(fileUrl) {
-  if (!fileUrl) return false;
-
-  // Firebase Storage URL이 아니면 삭제 시도하지 않음
-  if (!isFirebaseStorageUrl(fileUrl)) {
-    return false;
+export function validateImageFile(file) {
+  if (!file) {
+    throw new Error("업로드할 파일이 없습니다.");
   }
 
-  const fileRef = ref(storage, fileUrl);
-  await deleteObject(fileRef);
-  return true;
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    throw new Error("jpg, png, webp, gif 형식의 이미지만 업로드할 수 있습니다.");
+  }
+
+  const maxBytes = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error(`이미지 용량은 ${MAX_IMAGE_SIZE_MB}MB 이하만 가능합니다.`);
+  }
+}
+
+export async function uploadIssueImage(file, tab = "public", uid = "admin") {
+  validateImageFile(file);
+
+  const now = Date.now();
+  const safeName = sanitizeFileName(file.name);
+  const folder = tab === "private" ? "issues/private" : "issues/public";
+  const path = `${folder}/${uid}/${now}_${safeName}`;
+
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+
+  return {
+    url: downloadURL,
+    path,
+    name: safeName,
+  };
 }
