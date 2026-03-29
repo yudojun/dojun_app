@@ -1,7 +1,7 @@
 import requests
 
 PROJECT_ID = "unionapp-27bbd"
-COLLECTION = "issues_public"
+ISSUES_COLLECTION = "issues_public"
 
 
 def _get_string(fields: dict, key: str, default: str = "") -> str:
@@ -52,70 +52,87 @@ def _get_string_array(fields: dict, key: str) -> list[str]:
     return result
 
 
-def fetch_public_issues(id_token=None):
+def fetch_public_issues(id_token: str):
+    if not id_token:
+        raise PermissionError("로그인 토큰이 없습니다.")
+
     url = (
-        f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}"
-        f"/databases/(default)/documents/{COLLECTION}"
+        "https://firestore.googleapis.com/v1/"
+        f"projects/{PROJECT_ID}/databases/(default)/documents/{ISSUES_COLLECTION}"
     )
+    headers = {"Authorization": f"Bearer {id_token}"}
 
-    headers = {}
-    if id_token:
-        headers["Authorization"] = f"Bearer {id_token}"
+    r = requests.get(url, headers=headers, timeout=15)
 
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        print("fetch_public_issues status:", r.status_code)
-        print("fetch_public_issues url:", url)
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        print("fetch_public_issues error:", repr(e))
-        return []
+    print("fetch_public_issues status:", r.status_code)
+    print("fetch_public_issues url:", r.url)
 
-    documents = data.get("documents", []) or []
+    if r.status_code == 401:
+        raise PermissionError("401 인증 만료: 다시 로그인 필요")
+    if r.status_code == 403:
+        raise PermissionError("403 권한 거부: issues_public 읽기 권한 확인 필요")
+
+    r.raise_for_status()
+
+    payload = r.json()
+    docs = payload.get("documents", []) or []
+
+    def s(fields, key, default=""):
+        return (fields.get(key) or {}).get("stringValue", default)
+
+    def b(fields, key, default=False):
+        return (fields.get(key) or {}).get("booleanValue", default)
+
+    def i(fields, key, default=0):
+        raw = (fields.get(key) or {}).get("integerValue")
+        try:
+            return int(raw)
+        except Exception:
+            return default
+
+    def ts(fields, key):
+        return (fields.get(key) or {}).get("timestampValue", "")
+
+    def arr(fields, key):
+        values = ((fields.get(key) or {}).get("arrayValue") or {}).get("values", [])
+        result = []
+        for item in values:
+            if "stringValue" in item:
+                result.append(item.get("stringValue", ""))
+        return result
+
     results = []
 
-    for doc in documents:
+    for doc in docs:
+        name = doc.get("name", "")
+        issue_id = name.split("/")[-1] if name else ""
         fields = doc.get("fields", {}) or {}
-        doc_name = doc.get("name", "") or ""
-        doc_id = doc_name.split("/")[-1] if doc_name else ""
 
-        item = {
-            "id": doc_id,
-            "title": _get_string(fields, "title"),
-            "summary": _get_string(fields, "summary"),
-            "content": _get_string(fields, "content"),
-            "company": _get_string(fields, "company"),
-            "union": _get_string(fields, "union"),
-            "scope": _get_string(fields, "scope", "전체") or "전체",
-            "type": _get_string(fields, "type", "vote") or "vote",
-            "status": _get_string(fields, "status", "open") or "open",
-            "imageUrl": _get_string(fields, "imageUrl", ""),
-            "category": _get_string(fields, "category", ""),
-            "resultVisibility": _get_string(fields, "resultVisibility", "public"),
-            "multiple": _get_boolean(fields, "multiple", False),
-            "maxSelections": _get_integer(fields, "maxSelections", 1),
-            "options": _get_string_array(fields, "options"),
-            "order": _get_integer(fields, "order", 999999),
-            "active": _get_boolean(fields, "active", True),
-            "isPinned": _get_boolean(fields, "isPinned", False),
-            "createdAt": _get_timestamp(fields, "createdAt"),
-            "updatedAt": _get_timestamp(fields, "updatedAt"),
-            "startAt": _get_timestamp(fields, "startAt"),
-            "endAt": _get_timestamp(fields, "endAt"),
-        }
-
-        print(
-            "PARSED ISSUE |",
-            "id:", item["id"],
-            "| title:", item["title"],
-            "| type:", item["type"],
-            "| status:", item["status"],
-            "| active:", item["active"],
-            "| pinned:", item["isPinned"],
+        results.append(
+            {
+                "id": issue_id,
+                "title": s(fields, "title"),
+                "summary": s(fields, "summary"),
+                "content": s(fields, "content"),
+                "category": s(fields, "category"),
+                "scope": s(fields, "scope"),
+                "status": s(fields, "status", "draft"),
+                "type": s(fields, "type", "notice"),
+                "resultVisibility": s(fields, "resultVisibility", "public"),
+                "company": s(fields, "company"),
+                "union": s(fields, "union"),
+                "multiple": b(fields, "multiple", False),
+                "maxSelections": i(fields, "maxSelections", 1),
+                "options": arr(fields, "options"),
+                "startAt": ts(fields, "startAt"),
+                "endAt": ts(fields, "endAt"),
+                "createdAt": ts(fields, "createdAt"),
+                "updatedAt": ts(fields, "updatedAt"),
+                "imageUrl": s(fields, "imageUrl", ""),
+                "active": b(fields, "active", True),
+                "isPinned": b(fields, "isPinned", False),
+                "order": i(fields, "order", 999999),
+            }
         )
 
-        results.append(item)
-
-    print("DEBUG parsed issues count:", len(results))
     return results

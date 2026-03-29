@@ -17,6 +17,7 @@ import useVoteStats from "./hooks/useVoteStats";
 import useConfirm from "./hooks/useConfirm";
 import { ui } from "./styles/ui";
 import { subscribeIssues } from "./services/issueService";
+import { recountVoteStats } from "./services/voteService";
 
 const MEMBER_COUNT = 700;
 const MOBILE_BREAKPOINT = 900;
@@ -120,6 +121,8 @@ export default function App() {
     restoreIssue,
     hardDeleteIssue,
     handleChangeIssueStatus,
+    moveIssueUp,
+    moveIssueDown,
   } = useIssues({
     enabled: !!user && adminOK === true,
     actorUid: user?.uid || "",
@@ -135,6 +138,17 @@ export default function App() {
 
   const tabTitle = tab === "public" ? "공개 안건" : "내부 안건";
   const isBusy = savingIssue || reordering;
+
+  function isVoteLikeIssueType(type) {
+    return type === "vote" || type === "survey";
+  }
+
+  async function recountStatsIfNeeded(issueId, issueType) {
+    if (!issueId) return;
+    if (!isVoteLikeIssueType(issueType)) return;
+
+    await recountVoteStats(issueId);
+  }
 
   // ✅ 모바일에서 생성/수정 중에는 대시보드 자동 숨김
   useEffect(() => {
@@ -270,8 +284,12 @@ export default function App() {
   }
 
   async function handleSaveEdit() {
+    const targetIssueId = editingId || selectedIssueId;
+    const targetIssueType = form?.type || selectedIssue?.type || "";
+
     try {
       await saveEdit();
+      await recountStatsIfNeeded(targetIssueId, targetIssueType);
       pushToast("안건 저장 완료", "success");
     } catch (err) {
       console.log("SAVE EDIT ERROR:", err?.code, err?.message);
@@ -290,8 +308,12 @@ export default function App() {
   }
 
   async function handleIssueStatusChange(id, nextStatus) {
+    const targetIssue = allIssues.find((item) => item.id === id);
+    const targetIssueType = targetIssue?.type || "";
+
     try {
       await handleChangeIssueStatus(id, nextStatus);
+      await recountStatsIfNeeded(id, targetIssueType);
       pushToast("상태 변경 완료", "success");
     } catch (err) {
       console.log("STATUS CHANGE ERROR:", err?.code, err?.message);
@@ -588,6 +610,8 @@ export default function App() {
                     typeBadgeStyle={typeBadgeStyle}
                     canCreateOrEdit={isEditor}
                     canHardDelete={isSuperAdmin}
+                    onMoveIssueUp={moveIssueUp}
+                    onMoveIssueDown={moveIssueDown}
                   />
                 </div>
               )}

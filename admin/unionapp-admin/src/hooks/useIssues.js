@@ -267,6 +267,73 @@ export default function useIssues({
     return target?.sourceTab || inferTabFromIssue(target) || tab;
   };
 
+  const moveIssueUp = async (issueId) => {
+    if (!enabled) throw new Error("현재 순서를 변경할 수 없는 상태입니다.");
+    if (!uid) throw new Error("사용자 UID가 없습니다.");
+
+    const targetTab = getIssueSourceTab(issueId);
+    const ordered = visibleIssues.filter(
+      (issue) => (issue.sourceTab || inferTabFromIssue(issue)) === targetTab
+    );
+
+    const index = ordered.findIndex(
+      (issue) => (issue.docId || issue.id) === issueId
+    );
+
+    if (index <= 0) return;
+
+    const next = [...ordered];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+
+    const normalized = next.map((issue, idx) => ({
+      ...issue,
+      order: idx + 1,
+    }));
+
+    setReordering(true);
+    try {
+      await reorderIssues(targetTab, normalized, uid);
+    } catch (error) {
+      console.error("위로 이동 실패:", error);
+      throw error;
+    } finally {
+      setReordering(false);
+    }
+  };
+
+const moveIssueDown = async (issueId) => {
+  if (!enabled) throw new Error("현재 순서를 변경할 수 없는 상태입니다.");
+  if (!uid) throw new Error("사용자 UID가 없습니다.");
+
+  const targetTab = getIssueSourceTab(issueId);
+  const ordered = visibleIssues.filter(
+    (issue) => (issue.sourceTab || inferTabFromIssue(issue)) === targetTab
+  );
+
+  const index = ordered.findIndex(
+    (issue) => (issue.docId || issue.id) === issueId
+  );
+
+  if (index < 0 || index >= ordered.length - 1) return;
+
+  const next = [...ordered];
+  [next[index], next[index + 1]] = [next[index + 1], next[index]];
+
+  const normalized = next.map((issue, idx) => ({
+    ...issue,
+    order: idx + 1,
+  }));
+
+  setReordering(true);
+  try {
+    await reorderIssues(targetTab, normalized, uid);
+  } catch (error) {
+    console.error("아래로 이동 실패:", error);
+    throw error;
+  } finally {
+    setReordering(false);
+  }
+};
   const resetForm = () => {
     setForm({
       ...DEFAULT_FORM,
@@ -500,5 +567,7 @@ export default function useIssues({
     restoreIssue,
     hardDeleteIssue,
     handleChangeIssueStatus,
+    moveIssueUp,
+    moveIssueDown,
   };
 }

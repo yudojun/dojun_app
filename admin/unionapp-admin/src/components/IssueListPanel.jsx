@@ -32,6 +32,8 @@ export default function IssueListPanel({
   typeBadgeStyle,
   canCreateOrEdit,
   canHardDelete,
+  onMoveIssueUp,
+  onMoveIssueDown,
   mobileCompact = false,
 }) {
   const isCreateFormOpen =
@@ -76,37 +78,119 @@ export default function IssueListPanel({
         </SectionCard>
       ) : (
         <div style={{ display: "grid", gap: 6 }}>
-          {visibleIssues.map((issue) => {
-            const isEditing = !mobileCompact && activeEditingId === issue.id && !showTrash;
-            const isSelected = selectedIssueId === issue.id;
+          {visibleIssues.map((issue, index) => {
+            const issueKey = issue.docId || issue.id;
+            const isEditing =
+              !mobileCompact && activeEditingId === issueKey && !showTrash;
+            const isSelected = selectedIssueId === issueKey;
 
             return (
-              <IssueCard
-                key={issue.docId || issue.id}
-                issue={issue}
-                isEditing={isEditing}
-                isSelected={isSelected}
-                showTrash={showTrash}
-                tab={tab}
-                form={form}
-                setForm={setForm}
-                onSaveEdit={onSaveEdit}
-                onCancelEdit={onCancelEdit}
-                onStartEdit={onStartEdit}
-                onArchive={onArchive}
-                onRestore={onRestore}
-                onHardDelete={onHardDelete}
-                onChangeStatus={onChangeStatus}
-                onSelectIssue={onSelectIssue}
-                savingIssue={savingIssue}
-                statusOptions={statusOptions}
-                formatStatus={formatStatus}
-                statusBadgeStyle={statusBadgeStyle}
-                formatType={formatType}
-                typeBadgeStyle={typeBadgeStyle}
-                canEdit={canCreateOrEdit && !isInteractionLocked}
-                canHardDelete={canHardDelete && !isInteractionLocked}
-              />
+              <div key={issueKey} style={{ display: "grid", gap: 6 }}>
+                {!showTrash && !isEditing && (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      disabled={
+                        savingIssue ||
+                        isInteractionLocked ||
+                        index === 0
+                      }
+                      onClick={() => onMoveIssueUp?.(issueKey)}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 10,
+                        border: "1px solid #d1d5db",
+                        background:
+                          savingIssue || isInteractionLocked || index === 0
+                            ? "#f3f4f6"
+                            : "#ffffff",
+                        color: "#111827",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        cursor:
+                          savingIssue || isInteractionLocked || index === 0
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          savingIssue || isInteractionLocked || index === 0 ? 0.55 : 1,
+                      }}
+                    >
+                      ▲ 위로
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={
+                        savingIssue ||
+                        isInteractionLocked ||
+                        index === visibleIssues.length - 1
+                      }
+                      onClick={() => onMoveIssueDown?.(issueKey)}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 10,
+                        border: "1px solid #d1d5db",
+                        background:
+                          savingIssue ||
+                          isInteractionLocked ||
+                          index === visibleIssues.length - 1
+                            ? "#f3f4f6"
+                            : "#ffffff",
+                        color: "#111827",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        cursor:
+                          savingIssue ||
+                          isInteractionLocked ||
+                          index === visibleIssues.length - 1
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          savingIssue ||
+                          isInteractionLocked ||
+                          index === visibleIssues.length - 1
+                            ? 0.55
+                            : 1,
+                      }}
+                    >
+                      ▼ 아래로
+                    </button>
+                  </div>
+                )}
+
+                <IssueCard
+                  issue={issue}
+                  isEditing={isEditing}
+                  isSelected={isSelected}
+                  showTrash={showTrash}
+                  tab={tab}
+                  form={form}
+                  setForm={setForm}
+                  onSaveEdit={onSaveEdit}
+                  onCancelEdit={onCancelEdit}
+                  onStartEdit={onStartEdit}
+                  onArchive={onArchive}
+                  onRestore={onRestore}
+                  onHardDelete={onHardDelete}
+                  onChangeStatus={onChangeStatus}
+                  onSelectIssue={onSelectIssue}
+                  savingIssue={savingIssue}
+                  statusOptions={statusOptions}
+                  formatStatus={formatStatus}
+                  statusBadgeStyle={statusBadgeStyle}
+                  formatType={formatType}
+                  typeBadgeStyle={typeBadgeStyle}
+                  canEdit={canCreateOrEdit && !isInteractionLocked}
+                  canHardDelete={canHardDelete && !isInteractionLocked}
+                />
+              </div>
             );
           })}
         </div>

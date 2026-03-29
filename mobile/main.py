@@ -115,6 +115,11 @@ def version_file_path():
         return os.path.join(app.user_data_dir, "local_version.json")
     return "local_version.json"
 
+def issues_cache_file_path():
+    app = MDApp.get_running_app()
+    if app and hasattr(app, "user_data_dir"):
+        return os.path.join(app.user_data_dir, "issues_cache.json")
+    return "issues_cache.json"
 
 def get_local_version():
     path = version_file_path()
@@ -281,14 +286,16 @@ def should_display_issue(issue: dict, tab: str = "전체") -> bool:
     status = str(issue.get("status", "draft")).strip().lower()
     active = issue.get("active", True)
 
-    # active가 명시적으로 False일 때만 숨김
+    # active가 명시적으로 False면 숨김
     if active is False:
         return False
 
+    # 표시 정책
     if issue_type == "notice":
         visible = status in ("open", "closed")
     elif issue_type in ("vote", "survey"):
-        visible = status == "open"
+        # ✅ 종료된 투표/설문도 목록에 남김
+        visible = status in ("open", "closed")
     else:
         visible = False
 
@@ -469,6 +476,26 @@ class ExpandableIssueCard(MDCard):
             )
             header_box.add_widget(pin_label)
 
+        state_badge = self._build_state_badge()
+        if state_badge:
+            header_box.add_widget(state_badge)
+
+        state_notice_text = self._get_state_notice_text()
+        if state_notice_text:
+            self.state_notice_label = MDLabel(
+                text=f"※ {state_notice_text}",
+                font_name="Nanum",
+                font_size="12sp",
+                bold=True,
+                theme_text_color="Custom",
+                text_color=self._get_state_notice_color(),
+                size_hint_y=None,
+                height=dp(18),
+                shorten=True,
+                shorten_from="right",
+            )
+            header_box.add_widget(self.state_notice_label)
+
         if self.issue_type == "notice":
             self.notice_preview = self._build_notice_preview()
             header_box.add_widget(self.notice_preview)
@@ -583,12 +610,24 @@ class ExpandableIssueCard(MDCard):
         )
         btn_row.add_widget(MDLabel(text=""))
 
+        button_text = "자세히 보기"
+        button_color = (0.13, 0.58, 0.92, 1)
+
+        if self.status == "closed":
+            if self.issue_type in ("vote", "survey"):
+                button_text = "결과 보기"
+                button_color = (0.35, 0.42, 0.50, 1)
+            elif self.issue_type == "notice":
+                button_text = "내용 보기"
+                button_color = (0.35, 0.42, 0.50, 1)
+
         detail_btn = MDFlatButton(
-            text="자세히 보기",
+            text=button_text,
             font_name="Nanum",
             theme_text_color="Custom",
-            text_color=self._type_color(),
+            text_color=button_color,
         )
+        
         def _go_detail(*args):
             issue = {
                 "id": self.issue_id,
@@ -614,6 +653,8 @@ class ExpandableIssueCard(MDCard):
         self.content.add_widget(btn_row)
 
         self.add_widget(self.content)
+
+        self._apply_card_status_style()
 
         def _set_collapsed_height(dt):
             self._collapsed_height = (
@@ -647,7 +688,7 @@ class ExpandableIssueCard(MDCard):
             "draft": (0.45, 0.45, 0.45, 1),
             "review": (0.82, 0.56, 0.12, 1),
             "open": (0.18, 0.65, 0.28, 1),
-            "closed": (0.85, 0.20, 0.20, 1),
+            "closed": (0.42, 0.42, 0.42, 1),
             "archived": (0.40, 0.40, 0.40, 1),
         }.get(self.status, (0.35, 0.35, 0.35, 1))
 
@@ -792,7 +833,72 @@ class ExpandableIssueCard(MDCard):
             if self.issue_type != "notice":
                 self.badge.text = "결과 정보 없음"
                 self.participant_label.text = "👥 참여 0명"
+    
+    def _get_state_badge_text(self):
+        if self.status == "closed":
+            return "종료"
+        if self.status == "review":
+            return "검토중"
+        if self.status == "draft":
+            return "공개전"
+        if self.status == "archived":
+            return "보관"
+        return ""
 
+
+    def _get_state_badge_colors(self):
+        if self.status == "closed":
+            return (0.93, 0.94, 0.96, 1), (0.36, 0.36, 0.40, 1)
+        if self.status == "review":
+            return (1.0, 0.93, 0.80, 1), (0.66, 0.42, 0.04, 1)
+        if self.status == "draft":
+            return (0.93, 0.93, 0.93, 1), (0.35, 0.35, 0.35, 1)
+        if self.status == "archived":
+            return (0.90, 0.90, 0.90, 1), (0.32, 0.32, 0.32, 1)
+        return (1, 1, 1, 1), (0.35, 0.35, 0.35, 1)
+
+
+    def _build_state_badge(self):
+        badge_text = self._get_state_badge_text()
+        if not badge_text:
+            return None
+
+        bg_color, text_color = self._get_state_badge_colors()
+
+        row = MDBoxLayout(
+            orientation="horizontal",
+            size_hint_y=None,
+            height=dp(26),
+            spacing=dp(0),
+        )
+
+        badge = MDCard(
+            orientation="vertical",
+            size_hint=(None, None),
+            size=(dp(56), dp(24)),
+            radius=[12],
+            elevation=0,
+            md_bg_color=bg_color,
+            padding=(dp(8), 0, dp(8), 0),
+        )
+
+        badge_label = MDLabel(
+            text=badge_text,
+            font_name="Nanum",
+            font_size="11sp",
+            bold=True,
+            halign="center",
+            valign="middle",
+            theme_text_color="Custom",
+            text_color=text_color,
+        )
+
+        badge.add_widget(badge_label)
+        row.add_widget(badge)
+        row.add_widget(MDLabel(text=""))
+
+        return row
+    
     def _build_notice_preview(self):
         box = MDBoxLayout(
             orientation="vertical",
@@ -846,6 +952,81 @@ class ExpandableIssueCard(MDCard):
             )
 
         return box
+    
+    def _get_state_notice_text(self):
+        # 종료는 이미 meta + badge로 충분히 보이므로 목록 카드에서는 중복 안내 제거
+        if self.status == "closed":
+            return ""
+        if self.status == "draft":
+            return "아직 공개 전 안건입니다."
+        if self.status == "review":
+            return "검토 중인 안건입니다."
+        if self.status == "archived":
+            return "보관된 안건입니다."
+        return ""
+
+    def _get_state_notice_color(self):
+        if self.status == "closed":
+            return (0.42, 0.42, 0.42, 1)
+        if self.status == "draft":
+            return (0.40, 0.40, 0.40, 1)
+        if self.status == "review":
+            return (0.78, 0.48, 0.05, 1)
+        if self.status == "archived":
+            return (0.35, 0.35, 0.35, 1)
+        return (0.35, 0.35, 0.35, 1)
+
+
+    def _apply_card_status_style(self):
+        # 기본
+        self.md_bg_color = (1, 1, 1, 1)
+
+        # 상태별 카드 배경색
+        if self.status == "open":
+            self.md_bg_color = (1, 1, 1, 1)
+
+        elif self.status == "closed":
+            # 종료: 경고 느낌보다 정리된 회색 톤
+            self.md_bg_color = (0.98, 0.985, 0.99, 1)
+
+        elif self.status == "draft":
+            self.md_bg_color = (0.96, 0.96, 0.96, 1)
+
+        elif self.status == "review":
+            self.md_bg_color = (1.0, 0.95, 0.88, 1)
+
+        elif self.status == "archived":
+            self.md_bg_color = (0.93, 0.93, 0.93, 1)
+
+        # 제목색
+        if hasattr(self, "title_lbl") and self.title_lbl:
+            self.title_lbl.theme_text_color = "Custom"
+
+            if self.status == "open":
+                self.title_lbl.text_color = (0.12, 0.12, 0.12, 1)
+
+            elif self.status == "closed":
+                self.title_lbl.text_color = (0.22, 0.22, 0.24, 1)
+
+            elif self.status == "draft":
+                self.title_lbl.text_color = (0.42, 0.42, 0.42, 1)
+
+            elif self.status == "review":
+                self.title_lbl.text_color = (0.45, 0.30, 0.10, 1)
+
+            elif self.status == "archived":
+                self.title_lbl.text_color = (0.38, 0.38, 0.38, 1)
+
+        # 구분선 색
+        if hasattr(self, "divider") and self.divider:
+            if self.status == "closed":
+                self.divider.md_bg_color = (0.84, 0.87, 0.91, 1)
+            elif self.status == "review":
+                self.divider.md_bg_color = (0.93, 0.82, 0.62, 1)
+            elif self.status == "archived":
+                self.divider.md_bg_color = (0.78, 0.78, 0.78, 1)
+            else:
+                self.divider.md_bg_color = (0.88, 0.90, 0.93, 1)
 
 # =============================
 # Screens
@@ -905,7 +1086,8 @@ class MainScreen(MDScreen):
             issue_list.clear_widgets()
 
         if not issues:
-            self._add_empty_state()
+            empty_kind = self._resolve_empty_state_kind()
+            self._add_empty_state(empty_kind)
             self._last_loaded_tab = self.current_tab
             return
 
@@ -945,27 +1127,86 @@ class MainScreen(MDScreen):
 
         self._last_loaded_tab = self.current_tab
 
-    def _add_empty_state(self):
-        issue_list = self.ids.get("issue_list")
-        if not issue_list:
-            return
 
-        issue_list.clear_widgets()
+    def _resolve_empty_state_kind(self):
+        app = MDApp.get_running_app()
+        total_loaded = len(LOCAL_ISSUES or [])
+        last_refresh_ok = getattr(app, "_last_refresh_ok", None)
+        last_refresh_error = str(getattr(app, "_last_refresh_error", "") or "").strip()
 
+        # 1) 아예 못 불러온 상태
+        if last_refresh_ok is False and total_loaded == 0:
+            return "fetch_error"
+
+        # 2) 데이터는 있지만 현재 탭/표시조건 때문에 안 보이는 상태
+        if total_loaded > 0:
+            return "filtered_out"
+
+        # 3) 실제로 표시할 데이터가 없는 상태
+        return "empty"
+
+
+    def _build_empty_state_texts(self, empty_kind: str):
+        app = MDApp.get_running_app()
         tab_name = getattr(self, "current_tab", "전체")
+        last_error = str(getattr(app, "_last_refresh_error", "") or "").strip()
+        last_refresh_at = str(getattr(app, "_last_refresh_at", "") or "").strip()
+
+        if empty_kind == "fetch_error":
+            title_text = "☒ 안건을 불러오지 못했습니다"
+            guide_text = "네트워크 또는 Firebase 응답 문제일 수 있습니다."
+            if last_error:
+                hint_text = f"최근 오류: {last_error[:90]}"
+            else:
+                hint_text = "앱 삭제 대신 복구 또는 새로고침을 먼저 실행해 보세요."
+            return title_text, guide_text, hint_text
+
+        if empty_kind == "filtered_out":
+            if tab_name == "공지":
+                title_text = "☑ 현재 탭에서 보이는 공지가 없습니다"
+                guide_text = "데이터는 있지만 공지 탭 조건에 맞는 문서가 없습니다."
+            elif tab_name == "투표":
+                title_text = "☑ 현재 탭에서 보이는 투표가 없습니다"
+                guide_text = "데이터는 있지만 투표 탭 조건에 맞는 문서가 없습니다."
+            elif tab_name == "설문":
+                title_text = "☑ 현재 탭에서 보이는 설문이 없습니다"
+                guide_text = "데이터는 있지만 설문 탭 조건에 맞는 문서가 없습니다."
+            else:
+                title_text = "☑ 현재 탭에서 보이는 안건이 없습니다"
+                guide_text = "가져온 데이터는 있지만 active/status/유형 조건 때문에 숨겨져 있습니다."
+
+            hint_text = "상단 새로고침을 누르거나 다른 탭으로 이동해서 다시 확인해 보세요."
+            return title_text, guide_text, hint_text
 
         if tab_name == "공지":
             title_text = "📭 표시할 공지가 없습니다"
             guide_text = "공개 상태(open/closed)의 공지만 표시됩니다."
         elif tab_name == "투표":
             title_text = "🗳 표시할 투표가 없습니다"
-            guide_text = "진행중(open) 상태의 투표만 표시됩니다."
+            guide_text = "공개 상태(open/closed)의 투표만 표시됩니다."
         elif tab_name == "설문":
             title_text = "📝 표시할 설문이 없습니다"
-            guide_text = "진행중(open) 상태의 설문만 표시됩니다."
+            guide_text = "공개 상태(open/closed)의 설문만 표시됩니다."
         else:
             title_text = "📭 현재 표시할 안건이 없습니다"
             guide_text = "active=true 이고 표시 조건을 만족하는 문서만 보입니다."
+
+        if last_refresh_at:
+            hint_text = f"최근 확인 시각: {last_refresh_at}"
+        else:
+            hint_text = "상단 새로고침 버튼으로 다시 확인해 보세요."
+
+        return title_text, guide_text, hint_text
+
+
+    def _add_empty_state(self, empty_kind="empty"):
+        issue_list = self.ids.get("issue_list")
+        if not issue_list:
+            return
+
+        issue_list.clear_widgets()
+
+        title_text, guide_text, hint_text = self._build_empty_state_texts(empty_kind)
 
         card = MDCard(
             orientation="vertical",
@@ -999,7 +1240,7 @@ class MainScreen(MDScreen):
         )
 
         hint_label = MDLabel(
-            text="필요하면 상단 벌레 버튼에서 복구를 실행하거나 새로고침 버튼을 눌러 다시 확인해 보세요.",
+            text=hint_text,
             font_name="Nanum",
             halign="center",
             theme_text_color="Secondary",
@@ -1027,7 +1268,7 @@ class MainScreen(MDScreen):
         )
 
         recover_btn = MDRaisedButton(
-            text="복구",
+            text="복구 실행",
             font_name="Nanum",
             md_bg_color=(0.13, 0.58, 0.92, 1),
             text_color=(1, 1, 1, 1),
@@ -1055,11 +1296,11 @@ class MainScreen(MDScreen):
         issue_list.add_widget(card)
         self._last_loaded_tab = self.current_tab
 
+
     def on_pre_enter(self, *args):
         app = MDApp.get_running_app()
         if app:
             Clock.schedule_once(lambda dt: app.refresh_issues(silent=True), 0.1)
-
 
 class UpdateHistoryScreen(MDScreen):
     def on_enter(self):
@@ -2022,10 +2263,46 @@ class MainApp(MDApp):
         kv_path = os.path.join(os.path.dirname(__file__), "dojun.kv")
         return Builder.load_file(kv_path)
 
+    def save_issue_cache(self, issues: list):
+        try:
+            path = issues_cache_file_path()
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(list(issues or []), f, ensure_ascii=False)
+        except Exception as e:
+            print("SAVE ISSUE CACHE ERROR:", e)
+
+    def load_issue_cache(self) -> list:
+        try:
+            path = issues_cache_file_path()
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            print("LOAD ISSUE CACHE ERROR:", e)
+        return []
+
     def on_start(self):
+        global LOCAL_ISSUES
+
         self._refreshing = False
         self._last_issue_signature = None
         self._auto_refresh_event = None
+        self._last_refresh_at = ""
+        self._last_refresh_ok = None
+        self._last_refresh_error = ""
+        self._using_issue_cache = False
+
+        try:
+            cached = self.load_issue_cache()
+            if cached:
+                LOCAL_ISSUES = cached
+                self._last_issue_signature = self.build_issue_signature(cached)
+                print("ISSUE CACHE LOADED:", len(cached))
+        except Exception as e:
+            print("INITIAL ISSUE CACHE LOAD ERROR:", e)
 
         try:
             id_token, uid = firebase_anonymous_login()
@@ -2097,6 +2374,15 @@ class MainApp(MDApp):
         else:
             self.stop_update_dot_animation()
 
+    def force_relogin(self):
+        self.user_id_token = None
+        self.user_uid = None
+
+        id_token, uid = firebase_anonymous_login()
+        self.user_id_token = id_token
+        self.user_uid = uid
+        print("RELOGIN OK:", uid)
+
     def refresh_issues(self, *args, silent=False):
         global LOCAL_ISSUES
 
@@ -2114,65 +2400,81 @@ class MainApp(MDApp):
             self._last_refresh_ok = False
             self._last_refresh_error = ""
 
+            snackbar_text = ""
+
             try:
-                id_token = getattr(self, "user_id_token", None)
+                if not getattr(self, "user_id_token", None):
+                    self.force_relogin()
 
-                if not id_token:
-                    self.user_id_token, self.user_uid = firebase_anonymous_login()
-                    id_token = self.user_id_token
+                try:
+                    fetched = fetch_public_issues(self.user_id_token)
+                except Exception as first_error:
+                    error_text = str(first_error)
+                    print("FIRST FETCH ERROR:", error_text)
 
-                fetched = fetch_public_issues(id_token)
+                    # 인증/권한 관련이면 토큰 재발급 후 1회 재시도
+                    if any(x in error_text for x in ["401", "403", "Forbidden", "인증", "권한"]):
+                        print("AUTH ERROR -> TRY RELOGIN")
+                        self.force_relogin()
+                        fetched = fetch_public_issues(self.user_id_token)
+                    else:
+                        raise
+
                 print("DEBUG fetched count:", len(fetched))
 
                 if fetched:
                     old_sig = self._last_issue_signature or self.build_issue_signature(LOCAL_ISSUES)
                     new_sig = self.build_issue_signature(fetched)
-
                     changed = old_sig != new_sig
-                    print("DEBUG changed:", changed)
+
+                    LOCAL_ISSUES = fetched
+                    self._last_issue_signature = new_sig
+                    self._last_refresh_ok = True
 
                     if changed:
-                        LOCAL_ISSUES = fetched
-                        self._last_issue_signature = new_sig
                         print("INFO: LOCAL_ISSUES updated from Firestore")
-
-                        try:
-                            if self.root.current == "main":
-                                main = self.root.get_screen("main")
-                                main._last_loaded_tab = None
-                                main.populate_main_list()
-                        except Exception as e:
-                            print("ERROR UI update after refresh:", e)
+                        snackbar_text = "업데이트 완료"
                     else:
                         print("INFO: no issue changes detected")
-
-                    self._last_refresh_ok = True
+                        snackbar_text = "변경된 안건이 없습니다"
 
                 else:
-                    print("WARN: fetched empty -> keep LOCAL_ISSUES")
-
-                    try:
-                        if self.root.current == "main":
-                            main = self.root.get_screen("main")
-                            if not LOCAL_ISSUES:
-                                main._last_loaded_tab = None
-                                main.populate_main_list()
-                    except Exception as e:
-                        print("ERROR EMPTY FETCH UI UPDATE:", e)
-
+                    print("WARN: fetched empty list")
                     self._last_refresh_ok = True
+
+                    if LOCAL_ISSUES:
+                        snackbar_text = "변경된 안건이 없습니다"
+                    else:
+                        snackbar_text = "표시할 안건이 없습니다"
 
             except Exception as e:
                 print("ERROR refresh_issues:", e)
                 self._last_refresh_ok = False
                 self._last_refresh_error = str(e)
 
+                error_text = str(e)
+
+                if "403" in error_text:
+                    snackbar_text = "권한 오류: 공개 안건을 읽지 못했습니다"
+                elif "401" in error_text:
+                    snackbar_text = "인증 만료: 다시 로그인에 실패했습니다"
+                else:
+                    snackbar_text = "안건을 불러오지 못했습니다"
+
             self._refreshing = False
 
-            if not silent:
+            try:
+                if self.root and self.root.current == "main":
+                    main = self.root.get_screen("main")
+                    main._last_loaded_tab = None
+                    main.populate_main_list()
+            except Exception as e:
+                print("ERROR UI update after refresh:", e)
+
+            if not silent and snackbar_text:
                 MDSnackbar(
                     MDLabel(
-                        text="업데이트 완료",
+                        text=snackbar_text,
                         font_name="Nanum",
                         font_size="13sp",
                         max_lines=1,
@@ -2182,8 +2484,8 @@ class MainApp(MDApp):
                     ),
                     y="10dp",
                     pos_hint={"center_x": 0.5},
-                    size_hint_x=0.85,
-                    duration=1.0,
+                    size_hint_x=0.88,
+                    duration=1.2,
                 ).open()
 
         Clock.schedule_once(_do_refresh, 0)
@@ -3426,12 +3728,19 @@ class MainApp(MDApp):
         modal.add_widget(card)
         self._debug_modal = modal
         modal.open()
-    def reset_runtime_state(self):
+
+    def reset_runtime_state(self, keep_issues=True):
         global LOCAL_ISSUES
 
         self._refreshing = False
-        self._last_issue_signature = None
-        LOCAL_ISSUES = []
+        self._last_refresh_error = ""
+        self._using_issue_cache = False
+
+        if keep_issues:
+            self._last_issue_signature = self.build_issue_signature(LOCAL_ISSUES)
+        else:
+            self._last_issue_signature = None
+            LOCAL_ISSUES = []
 
         try:
             main = self.root.get_screen("main")
@@ -3456,36 +3765,40 @@ class MainApp(MDApp):
 
     def recover_app_state(self):
         try:
-            self.reset_runtime_state()
-            self.reset_local_version_state()
+            print("RECOVER APP STATE START")
+
+            # 복구 핵심: 기존 토큰/UID 버리고 강제 재로그인
+            self._refreshing = False
+            self._last_refresh_error = ""
+            self.user_id_token = None
+            self.user_uid = None
 
             try:
                 main = self.root.get_screen("main")
-                issue_list = main.ids.get("issue_list")
-                if issue_list:
-                    issue_list.clear_widgets()
+                main._last_loaded_tab = None
+                main.opened_card = None
             except Exception as e:
-                print("CLEAR ISSUE LIST ERROR:", e)
-
-            self.refresh_issues(silent=False)
+                print("RECOVER MAIN RESET ERROR:", e)
 
             MDSnackbar(
                 MDLabel(
-                    text="앱 상태를 초기화하고 다시 불러오는 중입니다",
+                    text="연결을 다시 확인하는 중입니다",
                     font_name="Nanum",
                     max_lines=1,
                 ),
                 y="10dp",
                 pos_hint={"center_x": 0.5},
-                size_hint_x=0.90,
-                duration=1.2,
+                size_hint_x=0.85,
+                duration=0.8,
             ).open()
+
+            Clock.schedule_once(lambda dt: self.refresh_issues(silent=False), 0.1)
 
         except Exception as e:
             print("RECOVER APP STATE ERROR:", e)
             MDSnackbar(
                 MDLabel(
-                    text="앱 초기화 중 오류가 발생했습니다",
+                    text="복구 중 오류가 발생했습니다",
                     font_name="Nanum",
                     max_lines=1,
                 ),
